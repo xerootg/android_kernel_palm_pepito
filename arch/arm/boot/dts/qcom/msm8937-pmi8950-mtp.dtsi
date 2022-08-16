@@ -20,8 +20,10 @@
 		cell-index = <0>;
 		compatible = "qcom,camera-flash";
 		qcom,flash-type = <1>;
-		qcom,flash-source = <&pmi8950_flash0 &pmi8950_flash1>;
-		qcom,torch-source = <&pmi8950_torch0 &pmi8950_torch1>;
+//[Start]modefy by qiurongzhang@tcl.com 20171206 for flash current unstable
+		qcom,flash-source = <&pmi8950_flash0 /*&pmi8950_flash1*/>;
+		qcom,torch-source = <&pmi8950_torch0 /*&pmi8950_torch1*/>;
+//[END]modefy by qiurongzhang@tcl.com 20171206 for flash current unstable
 		qcom,switch-source = <&pmi8950_switch>;
 	};
 };
@@ -58,6 +60,30 @@
 	status = "ok";
 	qpnp,qpnp-labibb-mode = "lcd";
 };
+
+//[Start]modefy by tct.shicuiping for get adc voltage
+&pmi8950_vadc {
+	chan@0 {
+		qcom,scale-function = <0>;
+	};
+	chan@3 {
+		qcom,scale-function = <0>;
+	};
+	chan@d {
+		qcom,scale-function = <16>;
+	};
+	chan@43 {
+		qcom,scale-function = <0>;
+	};
+	chan@44 {
+		qcom,scale-function = <0>;
+	};
+};
+
+&usb_otg {
+	qcom,usbin-vadc = <&pmi8950_vadc>;
+};
+//[Stop]modefy by tct.shicuiping for get adc voltage
 
 &ibb_regulator {
 	qcom,qpnp-ibb-discharge-resistor = <32>;

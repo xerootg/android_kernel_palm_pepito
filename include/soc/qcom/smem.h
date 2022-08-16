@@ -105,7 +105,16 @@ enum {
 	SMEM_APPS_BOOT_MODE,
 	SMEM_VERSION_FIRST,
 	SMEM_VERSION_SMD = SMEM_VERSION_FIRST,
+	//-Add-Begin-by-TCTSZ.haimei.liu@tcl.com.add hardware board id.2017/12/29.task:5844759.
+  	SMEM_VERSION_GPIO_BOARD_ID =100,
+	//-Add-End-by-TCTSZ.haimei.liu@tcl.com.add hardware board id.2017/12/29.task:5844759.
+	//add begin by TCTSZ.haimei.liu@tcl.com.2017/12/19.for print powerup reason.task: 5558422.
+	 SMEM_PRINT_PON_REASON = 108,
+	//add end by TCTSZ.haimei.liu@tcl.com.2017/12/19.for print powerup reason.task: 5558422.
+	// Add by wenzhao, add secure status smem id for [Task-5416795]
+	SMEM_VERSION_OEM_STATUS = 111,
 	SMEM_VERSION_LAST = SMEM_VERSION_FIRST + 24,
+
 	SMEM_OSS_RRCASN1_BUF1,
 	SMEM_OSS_RRCASN1_BUF2,
 	SMEM_ID_VENDOR0,

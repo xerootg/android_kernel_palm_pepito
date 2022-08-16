@@ -39,6 +39,12 @@
 			qcom,pon_1 {
 				qcom,pon-type = <0>;
 				qcom,pull-up = <1>;
+				// add by shicuiping for power key reset start
+				qcom,support-reset = <1>;
+				qcom,s1-timer = <6720>;
+				qcom,s2-timer = <2000>;
+				qcom,s2-type =  <4>;
+				// add by shicuiping for power key reset stop
 				linux,code = <116>;
 			};
 
@@ -48,7 +54,45 @@
 				linux,code = <114>;
 			};
 		};
+		// Add-begin by ming.zeng for 6809266, set register S2/S3 for FOTA upgrade 2018/08/23
+		qcom,power-on-recovery@800 {
+                        compatible = "qcom,qpnp-power-on-recovery";
+                        reg = <0x800 0x100>;
+                        interrupts = <0x0 0x8 0x0>,
+                                <0x0 0x8 0x1>,
+                                <0x0 0x8 0x4>,
+                                <0x0 0x8 0x5>;
+                        interrupt-names = "kpdpwr", "resin",
+                                "resin-bark", "kpdpwr-resin-bark";
+                        qcom,pon-dbc-delay = <15625>;
+                        qcom,system-reset;
+			qcom,s3-debounce = <128>;
+			qcom,s3-src = "kpdpwr";
 
+                        qcom,pon_1 {
+                                qcom,pon-type = <0>;
+                                qcom,pull-up = <1>;
+                                qcom,support-reset = <0>;
+                                linux,code = <116>;
+                        };
+
+                        qcom,pon_2 {
+                                qcom,pon-type = <1>;
+                                qcom,pull-up = <1>;
+                                qcom,support-reset = <0>;
+                                linux,code = <114>;
+                        };
+
+			qcom,pon_3 {
+				qcom,pon-type = <3>;
+				qcom,support-reset = <1>;
+				qcom,s1-timer = <6720>;
+				qcom,s2-timer = <2000>;
+				qcom,s2-type =  <4>;
+			};
+                };
+
+		// Add-begin by ming.zeng for 6809266, set register S2/S3 for FOTA upgrade 2018/08/23
 		pm8937_temp_alarm: qcom,temp-alarm@2400 {
 			compatible = "qcom,qpnp-temp-alarm";
 			reg = <0x2400 0x100>;

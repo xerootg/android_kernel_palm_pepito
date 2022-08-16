@@ -37,6 +37,16 @@
 #include "pil-q6v5.h"
 #include "pil-msa.h"
 
+//[Feature]-Add-BEGIN porting TCT_debug dump ssr information to klog by qian.zhao@tcl.com, 2016/08/01, [task-2640136]
+#include <linux/klog.h>
+#undef pr_err
+#undef pr_info
+#undef pr_warn
+#define pr_err  ssr_print
+#define pr_info ssr_print
+#define pr_warn ssr_print
+//[Feature]-Add-END porting TCT_debug dump ssr err to klog  by qian.zhao@tcl.com, 2016/08/01, [task-2640136]
+
 #define MAX_VDD_MSS_UV		1150000
 #define PROXY_TIMEOUT_MS	10000
 #define MAX_SSR_REASON_LEN	130U

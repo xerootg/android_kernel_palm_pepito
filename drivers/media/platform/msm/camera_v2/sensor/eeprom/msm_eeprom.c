@@ -54,10 +54,16 @@ static int msm_get_read_mem_size
 			return -EINVAL;
 		}
 		for (i = 0; i < eeprom_map->memory_map_size; i++) {
-			if (eeprom_map->mem_settings[i].i2c_operation ==
-				MSM_CAM_READ) {
+			/*modefy start by qiurongzhang@tcl.com for gc8034 20180424*/
+			if ((eeprom_map->mem_settings[i].i2c_operation ==
+				MSM_CAM_READ) ||
+				/*(eeprom_map->mem_settings[i].i2c_operation ==
+				MSM_CAM_FOR_GC8034) ||*/
+				(eeprom_map->mem_settings[i].i2c_operation ==
+				MSM_CAM_READ_GC8034)) {
 				size += eeprom_map->mem_settings[i].reg_data;
 			}
+			/*modefy end  by qiurongzhang@tcl.com for gc8034 20180424*/
 		}
 	}
 	CDBG("Total Data Size: %d\n", size);
@@ -325,9 +331,10 @@ ERROR:
 static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 	struct msm_eeprom_memory_map_array *eeprom_map_array)
 {
-	int rc =  0, i, j;
+	int rc =  0, i, j, gc;/*add by qiurongzhang@tcl.com for gc8034 20180424*/
 	uint8_t *memptr;
 	struct msm_eeprom_mem_map_t *eeprom_map;
+	uint16_t gc_read = 0, gc_readf4 = 0;/*add by qiurongzhang@tcl.com for gc8034 20180424*/
 
 	e_ctrl->cal_data.mapdata = NULL;
 	e_ctrl->cal_data.num_data = msm_get_read_mem_size(eeprom_map_array);
@@ -406,6 +413,97 @@ static int eeprom_parse_memory_map(struct msm_eeprom_ctrl_t *e_ctrl,
 				memptr += eeprom_map->mem_settings[i].reg_data;
 			}
 			break;
+			/*add start by qiurongzhang@tcl.com for gc8034 20180424*/
+			/*case MSM_CAM_FOR_GC8034:
+				gc8034_read_buffer(e_ctrl, memptr);
+				pr_err("memdata_num: %d\n",  e_ctrl->cal_data.num_data);
+				break;*/
+			case MSM_CAM_READ_GC8034: {
+#if 0
+				e_ctrl->i2c_client.addr_type = 1;
+				for(gc = 0; gc < eeprom_map->mem_settings[i].reg_data; gc++) {
+						msleep(eeprom_map->mem_settings[i].delay);
+						rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+							&(e_ctrl->i2c_client), eeprom_map->mem_settings[i].reg_addr, &gc_read,
+							eeprom_map->mem_settings[i].data_type);
+						if (rc < 0) {
+							pr_err("%s: read failed\n",
+								__func__);
+							goto clean_up;
+						}
+						*memptr = (uint8_t)gc_read;
+						memptr++;
+					}
+#endif
+#if 1
+ 				e_ctrl->i2c_client.addr_type = 1;
+				if(1 == eeprom_map->mem_settings[i].reg_data) {
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xd4,
+ 						(eeprom_map->mem_settings[i].reg_addr >> 8) & 0xff,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xd5,
+ 						eeprom_map->mem_settings[i].reg_addr & 0xff,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xf3, 0x20,
+						eeprom_map->mem_settings[i].data_type);
+					msleep(eeprom_map->mem_settings[i].delay);
+					rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+						&(e_ctrl->i2c_client), 0xd7, &gc_read,
+						eeprom_map->mem_settings[i].data_type);
+					*memptr = (uint8_t)gc_read;
+					memptr++;
+				}
+				else {
+					rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+						&(e_ctrl->i2c_client), 0xf4, &gc_readf4,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xd4,
+ 						(eeprom_map->mem_settings[i].reg_addr >> 8) & 0xff,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xd5,
+ 						eeprom_map->mem_settings[i].reg_addr & 0xff,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xf3, 0x20,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xf4, gc_readf4 | 0x02,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xf3, 0x80,
+						eeprom_map->mem_settings[i].data_type);
+					
+					msleep(eeprom_map->mem_settings[i].delay);
+					
+					for(gc = 0; gc < eeprom_map->mem_settings[i].reg_data; gc++) {
+						msleep(eeprom_map->mem_settings[i].delay);
+						rc = e_ctrl->i2c_client.i2c_func_tbl->i2c_read(
+							&(e_ctrl->i2c_client), 0xd7, &gc_read,
+							eeprom_map->mem_settings[i].data_type);
+						if (rc < 0) {
+							pr_err("%s: read failed\n",
+								__func__);
+							goto clean_up;
+						}
+						*memptr = (uint8_t)gc_read;
+						memptr++;
+					}
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xf3, 0x00,
+						eeprom_map->mem_settings[i].data_type);
+					e_ctrl->i2c_client.i2c_func_tbl->i2c_write(
+ 						&(e_ctrl->i2c_client), 0xf4, gc_readf4 & 0xfd,
+						eeprom_map->mem_settings[i].data_type);
+				}
+#endif
+			}
+			break;
+			/*add end by qiurongzhang@tcl.com for gc8034 20180424*/
 			default:
 				pr_err("%s: %d Invalid i2c operation LC:%d\n",
 					__func__, __LINE__, i);
@@ -1454,11 +1552,16 @@ static int eeprom_init_config32(struct msm_eeprom_ctrl_t *e_ctrl,
 	}
 
 	rc = eeprom_parse_memory_map(e_ctrl, mem_map_array);
+//add start by li.tan@tcl.com for eeprom power down 20171103
 	if (rc < 0) {
-		pr_err("%s:%d memory map parse failed\n",
-			__func__, __LINE__);
+	   rc = msm_camera_power_down(power_info,e_ctrl->eeprom_device_type, &e_ctrl->i2c_client);
+	if (rc < 0)
+		pr_err("%s:%d Power down failed rc %d\n",__func__, __LINE__, rc);
+	
+    pr_err("%s:%d memory map parse failed\n",__func__, __LINE__);
 		goto free_mem;
 	}
+//add end by li.tan@tcl.com for eeprom power down 20171103
 
 	rc = msm_camera_power_down(power_info,
 		e_ctrl->eeprom_device_type, &e_ctrl->i2c_client);

@@ -21,6 +21,12 @@
 
 #include "mdss_dsi.h"
 #include "mdss_edp.h"
+//add by yusen.ke.sz@tcl.com at 20180112 for display Mipi clk
+
+#include <linux/proc_fs.h> 
+#include <linux/magic.h>
+#include <linux/atomic.h>
+//add end
 #include "mdss_dsi_phy.h"
 
 #define MDSS_DSI_DSIPHY_REGULATOR_CTRL_0	0x00
@@ -42,6 +48,10 @@
 #define SW_RESET BIT(2)
 #define SW_RESET_PLL BIT(0)
 #define PWRDN_B BIT(7)
+
+uint32_t iMipiClk = 0;//add by yusen.ke.sz@tcl.com at 20150623 for display Mipi clk.
+extern uint32_t iFramerate ;
+
 
 /* 8996 */
 #define DATALANE_OFFSET_FROM_BASE_8996	0x100
@@ -1624,7 +1634,87 @@ bool is_diff_frame_rate(struct mdss_panel_info *panel_info,
 	else
 		return (frame_rate != panel_info->mipi.frame_rate);
 }
+//add begin by yusen.ke.sz@tcl.com at 20160516 for set mipi clk
+/*
+static s32 atoi(char *psz_buf)
+{
+	char *pch = psz_buf;
+	s32 base = 0;
 
+	while (isspace(*pch))
+		pch++;
+
+	if (*pch == '-' || *pch == '+') {
+		base = 10;
+		pch++;
+	} else if (*pch && tolower(pch[strlen(pch) - 1]) == 'h') {
+		base = 16;
+	}
+
+	return simple_strtoul(pch, NULL, base);
+}
+
+static ssize_t ts_Mipi_write(struct file *file, const char __user *buf,
+				   size_t count, loff_t *ppos)
+{
+	if (count) {
+		char ts_switch[16]={0};
+	
+		simple_write_to_buffer(ts_switch,16,ppos,buf,count);
+		//printk(KERN_ERR "buf = %s ; ts_switch =%s \n", buf, ts_switch);
+		iMipiClk = atoi(ts_switch);
+		
+		if( iMipiClk < 0 )
+			iMipiClk = 0;
+		else
+			refresh = 1;
+		printk(KERN_INFO "logger: ts_Mipi_write iMipiClk ==%d\n",iMipiClk);
+	}
+
+	return count;
+}*/
+//add end
+static ssize_t ts_Mipi_read(struct file *file, char __user *user_buf,
+         size_t count, loff_t *ppos)
+{
+	char *buff;
+    	int desc = 0;
+    	ssize_t ret;
+	buff = kmalloc(1024, GFP_KERNEL);
+	if (!buff)
+		return -ENOMEM;
+   	 desc = sprintf(buff, "%d\n", iMipiClk);
+	ret = simple_read_from_buffer(user_buf, count, ppos,
+		buff, desc);
+  	  kfree(buff);
+	return ret;
+   
+}
+
+static struct proc_dir_entry *ts_Mipi_file=NULL;
+static struct file_operations LCD_info_Mipi = {
+	.write = NULL,//ts_Mipi_write,		
+	.read = ts_Mipi_read,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	};
+static void init_adb_proc(void)
+{
+	
+	
+	ts_Mipi_file =  proc_create("mipi_clk",
+			S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+			ts_Mipi_file,
+			&LCD_info_Mipi);
+	if (ts_Mipi_file == NULL) {
+		printk(KERN_ERR "mipi_clk: init_log_proc create_proc_entry fails\n");
+		//goto tp_info_proc_file_failed;
+	}
+	else
+		printk(KERN_ERR "mipi_clk: init_log_proc create_proc_entry pass\n");
+}
+
+//add end
 int mdss_dsi_clk_div_config(struct mdss_panel_info *panel_info,
 			    int frame_rate)
 {
@@ -1678,6 +1768,14 @@ int mdss_dsi_clk_div_config(struct mdss_panel_info *panel_info,
 
 	if (panel_info->clk_rate == 0)
 		panel_info->clk_rate = 454000000;
+		
+	//add by yusen.ke.sz@tcl.com at 20180112 display MIPI CLK 
+	iFramerate=frame_rate;
+	iMipiClk = panel_info->clk_rate;
+	//printk(KERN_ERR "init_adb_proc 8974.c start");
+	init_adb_proc();
+	//add end
+
 
 	clk_rate = panel_info->clk_rate;
 	do_div(clk_rate, 8 * bpp);

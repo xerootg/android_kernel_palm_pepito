@@ -3358,7 +3358,12 @@ static int do_vdd_restriction(void)
 			thresh[MSM_VDD_RESTRICTION].thresh_list[i].sensor_id,
 			temp);
 			goto exit;
+		#if 0 // change by TCT.shicuiping for thermal setting
 		} else if (temp > msm_thermal_info.vdd_rstr_temp_hyst_degC)
+		#else
+		} else if (temp >= (msm_thermal_info.vdd_rstr_temp_degC +
+				msm_thermal_info.vdd_rstr_temp_hyst_degC))
+		#endif // change by TCT.shicuiping for thermal setting
 			dis_cnt++;
 	}
 	if (dis_cnt == max_tsens_num) {
@@ -6043,8 +6048,14 @@ static int probe_vdd_rstr(struct device_node *node,
 			goto read_node_fail;
 		}
 		ret = sensor_mgr_init_threshold(&thresh[MSM_VDD_RESTRICTION],
+		#if 0 // change by TCT.shicuiping for thermal setting
 			MONITOR_ALL_TSENS,
 			data->vdd_rstr_temp_hyst_degC, data->vdd_rstr_temp_degC,
+		#else
+			data->sensor_id,
+			(data->vdd_rstr_temp_hyst_degC+data->vdd_rstr_temp_degC),
+			data->vdd_rstr_temp_degC,
+		#endif // change by TCT.shicuiping for thermal setting
 			vdd_restriction_notify);
 		if (ret) {
 			pr_err("Error in initializing thresholds. err:%d\n",

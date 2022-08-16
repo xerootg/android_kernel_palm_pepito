@@ -476,6 +476,10 @@ static void ulpi_init(struct msm_otg *motg)
 		ulpi_write(&motg->phy, seq[0], seq[1]);
 		seq += 2;
 	}
+
+#if defined(CONFIG_TCT_COMMON)
+	wmb();
+#endif
 }
 
 static int msm_otg_phy_clk_reset(struct msm_otg *motg)

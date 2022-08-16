@@ -29,6 +29,10 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/of_regulator.h>
 #include <linux/qpnp/power-on.h>
+//add by junfeng.zhou for add timestamp of powerkey begin .
+#include <linux/rtc.h>
+#include <linux/time.h>
+//add by junfeng.zhou for add timestamp of powerkey end .
 
 #define CREATE_MASK(NUM_BITS, POS) \
 	((unsigned char) (((1 << (NUM_BITS)) - 1) << (POS)))
@@ -304,6 +308,10 @@ static const char * const qpnp_poff_reason[] = {
  * boot of the device.
  */
 static int warm_boot;
+//add by yusen.ke.sz@tcl.com at 20160810 for display resume time
+extern ktime_t resume_start;
+//add end
+
 module_param(warm_boot, int, 0);
 
 static int
@@ -489,12 +497,17 @@ static ssize_t qpnp_pon_dbc_store(struct device *dev,
 }
 
 static DEVICE_ATTR(debounce_us, 0664, qpnp_pon_dbc_show, qpnp_pon_dbc_store);
-
+//add begin by TCTSZ.haimei.liu@tcl.com.2017/12/5.reset s3 0x874 register to enable write again.task: 5558422 
+#define POWER_OFF_Dvdd_HARD_RESET	0x08
+#define POWER_OFF_Dvdd_SHUTDOWN		0x05
+static u8 tct_s3_reset=0;
+//add end by TCTSZ.haimei.liu@tcl.com.2017/12/5.reset s3 0x874 register to enable write again.
 static int qpnp_pon_reset_config(struct qpnp_pon *pon,
 		enum pon_power_off_type type)
 {
 	int rc;
 	u16 rst_en_reg;
+
 
 	if (pon->pon_ver == QPNP_PON_GEN1_V1)
 		rst_en_reg = QPNP_PON_PS_HOLD_RST_CTL(pon);
@@ -512,11 +525,25 @@ static int qpnp_pon_reset_config(struct qpnp_pon *pon,
 		break;
 	case PON_POWER_OFF_HARD_RESET:
 		if (pon->hard_reset_poff_type != -EINVAL)
-			type = pon->hard_reset_poff_type;
+				type = pon->hard_reset_poff_type;
+		//add begin by TCTSZ.haimei.liu@tcl.com.2017/12/5.reset s3 0x874 register to enable write again.task: 5558422 
+		if (tct_s3_reset != 0x0 ){
+				type = POWER_OFF_Dvdd_HARD_RESET;
+				dev_err(&pon->spmi->dev,
+			"tct pon_power_off_hard_reset type=0x08\n");
+		}
+		//add end by TCTSZ.haimei.liu@tcl.com.2017/12/5.reset s3 0x874 register to enable write again.
 		break;
 	case PON_POWER_OFF_SHUTDOWN:
 		if (pon->shutdown_poff_type != -EINVAL)
 			type = pon->shutdown_poff_type;
+		//add begin by TCTSZ.haimei.liu@tcl.com.2017/12/5.reset s3 0x874 register to enable write again.task: 5558422 
+		if (tct_s3_reset != 0x0 ){
+			type = POWER_OFF_Dvdd_SHUTDOWN;
+			dev_err(&pon->spmi->dev,
+			"tct pon_power_off_shutdown type=0x05\n");
+		}
+		//add end by TCTSZ.haimei.liu@tcl.com.2017/12/5.reset s3 0x874 register to enable write again.
 		break;
 	default:
 		break;
@@ -573,6 +600,14 @@ int qpnp_pon_system_pwr_off(enum pon_power_off_type type)
 
 	if (!pon)
 		return -ENODEV;
+
+//add begin by TCTSZ.haimei.liu@tcl.com.2017/12/5.reset s3 0x874 register to enable write again.task: 5558422 
+	rc = spmi_ext_register_readl(pon->spmi->ctrl, pon->spmi->sid,
+							QPNP_PON_S3_SRC(pon), &tct_s3_reset, 1);
+	dev_err(&pon->spmi->dev,
+			"tct read from addr=0x%x, tct_s3_reset(%d)\n",
+			QPNP_PON_S3_SRC(pon),tct_s3_reset);
+//add end by TCTSZ.haimei.liu@tcl.com.2017/12/5.reset s3 0x874 register to enable write again.
 
 	rc = qpnp_pon_reset_config(pon, type);
 	if (rc) {
@@ -829,6 +864,15 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 	switch (cfg->pon_type) {
 	case PON_KPDPWR:
 		pon_rt_bit = QPNP_PON_KPDPWR_N_SET;
+		
+		
+//add by junfeng.zhou for add timestamp of powerkey begin .
+{
+		
+		pr_err(" Report pwrkey %s event,key_code:%d\n", pon_rt_bit & pon_rt_sts ?
+			"press" : "release",cfg->key_code);
+}
+//add by junfeng.zhou for add timestamp of powerkey end .
 		break;
 	case PON_RESIN:
 		pon_rt_bit = QPNP_PON_RESIN_N_SET;
@@ -2388,16 +2432,38 @@ static struct spmi_driver qpnp_pon_driver = {
 	.remove		= qpnp_pon_remove,
 };
 
+// Add-begin by ming.zeng for 6809266, set register S2/S3 for FOTA upgrade 2018/08/23
+static struct of_device_id spmi_match_table_for_recovery[] = {
+	{ .compatible = "qcom,qpnp-power-on-recovery", },
+	{}
+};
+
+static struct spmi_driver qpnp_pon_driver_for_recovery = {
+	.driver		= {
+		.name	= "qcom,qpnp-power-on-recovery",
+		.of_match_table = spmi_match_table_for_recovery,
+	},
+	.probe		= qpnp_pon_probe,
+	.remove         = qpnp_pon_remove,
+	};
+
 static int __init qpnp_pon_init(void)
 {
-	return spmi_driver_register(&qpnp_pon_driver);
+	if (strnstr(saved_command_line, "androidrecovery.mode=true",strlen(saved_command_line)))
+		return spmi_driver_register(&qpnp_pon_driver_for_recovery);
+	else
+		return spmi_driver_register(&qpnp_pon_driver);
 }
 subsys_initcall(qpnp_pon_init);
 
 static void __exit qpnp_pon_exit(void)
 {
-	return spmi_driver_unregister(&qpnp_pon_driver);
+	if (strnstr(saved_command_line, "androidrecovery.mode=true",strlen(saved_command_line)))
+		return spmi_driver_unregister(&qpnp_pon_driver_for_recovery);
+	else
+		return spmi_driver_unregister(&qpnp_pon_driver);
 }
+// Add-end by ming.zeng for 6809266, set register S2/S3 for FOTA upgrade 2018/08/23
 module_exit(qpnp_pon_exit);
 
 MODULE_DESCRIPTION("QPNP PMIC POWER-ON driver");

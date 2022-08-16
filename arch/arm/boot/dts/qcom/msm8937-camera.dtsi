@@ -490,8 +490,10 @@
 };
 
 &i2c_freq_400Khz {
-	qcom,hw-thigh = <20>;
-	qcom,hw-tlow = <28>;
+//start modefy by qiurongzhang@tcl.com 20171103 for i2c timing
+	qcom,hw-thigh = <19>;
+	qcom,hw-tlow = <29>;
+//end modefy by qiurongzhang@tcl.com 20171103 for i2c timing
 	qcom,hw-tsu-sto = <21>;
 	qcom,hw-tsu-sta = <21>;
 	qcom,hw-thd-dat = <13>;

@@ -1319,6 +1319,9 @@
 			};
 		};
 
+/*add start by li.tan@tcl.com for Camera porting 20171012*/
+
+/*rear start*/
 		/*sensors */
 		cam_sensor_mclk0_default: cam_sensor_mclk0_default {
 			/* MCLK0 */
@@ -1377,35 +1380,37 @@
 				drive-strength = <2>; /* 2 MA */
 			};
 		};
+/*rear end*/
+/*external gpio ldo start*/ 
 
-		cam_sensor_rear_vdig: cam_sensor_rear_vdig {
+		cam_sensor_verg_default: cam_sensor_verg_default {
 			/* VDIG */
 			mux {
-				pins = "gpio62";
+				pins = "gpio62","gpio68";
 				function = "gpio";
 			};
 
 			config {
-				pins = "gpio62";
+				pins = "gpio62","gpio68";
 				bias-disable; /* No PULL */
 				drive-strength = <2>; /* 2 MA */
 			};
 		};
 
-		cam_sensor_rear_vdig_sleep: cam_sensor_rear_vdig_sleep {
+		cam_sensor_verg_sleep: cam_sensor_verg_sleep {
 			/* VDIG */
 			mux {
-				pins = "gpio62";
+				pins = "gpio62","gpio68";
 				function = "gpio";
 			};
 
 			config {
-				pins = "gpio62";
+				pins = "gpio62","gpio68";
 				bias-disable; /* No PULL */
 				drive-strength = <2>; /* 2 MA */
 			};
 		};
-
+/*external ldo end*/ 
 		cam_sensor_mclk1_default: cam_sensor_mclk1_default {
 			/* MCLK1 */
 			mux {
@@ -1464,6 +1469,7 @@
 			};
 		};
 
+/* front start */
 		cam_sensor_mclk2_default: cam_sensor_mclk2_default {
 			/* MCLK2 */
 			mux {
@@ -1522,4 +1528,6 @@
 			};
 		};
 	};
+/* front end */
+/*add end by li.tan@tcl.com for Camera porting 20171012*/
 };

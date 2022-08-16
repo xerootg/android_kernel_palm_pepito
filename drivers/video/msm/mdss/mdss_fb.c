@@ -50,6 +50,10 @@
 #include <linux/dma-buf.h>
 #include "mdss_fb.h"
 #include "mdss_mdp_splash_logo.h"
+//add by yusen.ke.sz@tcl.com at 20180313 for add sre function begin
+#include "mdss_dsi_cmd.h"
+#include "mdss_dsi.h"
+//add end
 #define CREATE_TRACE_POINTS
 #include "mdss_debug.h"
 #include "mdss_smmu.h"
@@ -883,6 +887,259 @@ static ssize_t mdss_fb_get_persist_mode(struct device *dev,
 	return ret;
 }
 
+
+//add by yusen.ke.sz@tcl.com at 20180313 for add SRE function begin
+#if 0
+static char cmd2_open_code1[] = {0x00,0x00};	
+static char cmd2_open_code2[] = {0xff,0x87,0x16,0x01};
+static char cmd2_open_code3[] = {0x00,0x80};
+static char cmd2_open_code4[] = {0xff,0x87,0x16};
+
+static char cmd2_open_code5[] = {0x00,0x01};                                                                                                               
+static char cmd2_open_code6[] = {0xC6,0x10};                                                                                                               
+static char cmd2_open_code7[] = {0x00,0x00};                                                                                                               
+static char cmd2_open_code8[] = {0xC8,0x90,0x78,0x56,0x34,0x33,0x33,0x33,0x33,0x33,0x33,0x43,0x44,0x43,0x44,0x44,0x44,0x44,0x54};//Default Low                                                                                                                                                  
+static char cmd2_open_code9[] = {0x00,0x01};                                                                                                               
+static char cmd2_open_code10[] = {0xC6,0x11};                                                                                                               
+static char cmd2_open_code11[] = {0x00,0x00};                                                                                                               
+static char cmd2_open_code12[] = {0xC8,0x90,0x78,0x56,0x34,0x33,0x33,0x22,0x33,0x33,0x43,0x44,0x44,0x43,0x44,0x44,0x44,0x44,0x54}; //Default Low + modify1                                                                                                                                                
+static char cmd2_open_code13[] = {0x00,0x01};                                                                                                               
+static char cmd2_open_code14[] = {0xC6,0x12};                                                                                                               
+static char cmd2_open_code15[] = {0x00,0x00};                                                                                                                                    
+static char cmd2_open_code16[] = {0xC8,0xE0,0x8C,0x56,0x33,0x33,0x33,0x33,0x33,0x33,0x33,0x23,0x22,0x33,0x43,0x44,0x44,0x44,0x44};   //HIGH
+static char cmd2_open_code17[] = {0x00,0x01};                                                                                                               
+static char cmd2_open_code18[] = {0xC6,0x00};                                                                                                                                          
+static char cmd2_open_code19[] = {0x00,0x00};                                                                                                               
+
+static char cmd2_open_code20[] = {0x92,0x82}; //AIE Low Level : 9200h=0x80, AIE Mid Level : 9200h=0x81,AIE High Level : 9200h=0x82, AIE Disable : 9200h=0x00
+
+static char cmd2_open_code21[] = {0x92,0x00};
+
+static char cmd2_close_code1[] = {0x00, 0x00};
+static char cmd2_close_code2[] = {0xff, 0x00, 0x00, 0x00};
+static char cmd2_close_code3[] = {0x00, 0x80};
+static char cmd2_close_code4[] = {0xff, 0x00, 0x00};
+static char cmd2_close_code5[] = {0x53, 0x2c};//add by test
+
+
+static struct dsi_cmd_desc fts_cmd2_open_cmd[] = {
+	
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code1)}, cmd2_open_code1},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code2)}, cmd2_open_code2},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code3)}, cmd2_open_code3},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code4)}, cmd2_open_code4},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code5)}, cmd2_open_code5},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code6)}, cmd2_open_code6},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code7)}, cmd2_open_code7},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code8)}, cmd2_open_code8},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code9)}, cmd2_open_code9},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code10)}, cmd2_open_code10},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code11)}, cmd2_open_code11},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code12)}, cmd2_open_code12},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code13)}, cmd2_open_code13},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code14)}, cmd2_open_code14},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code15)}, cmd2_open_code15},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code16)}, cmd2_open_code16},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code17)}, cmd2_open_code17},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code18)}, cmd2_open_code18},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code19)}, cmd2_open_code19},
+
+
+//test
+	{{DTYPE_DCS_WRITE1, 1, 0, 0, 0, sizeof(cmd2_open_code20)}, cmd2_open_code20},
+		
+
+
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code1)}, cmd2_close_code1},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code2)}, cmd2_close_code2},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code3)}, cmd2_close_code3},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code4)}, cmd2_close_code4},
+
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code5)}, cmd2_close_code5},
+	
+};
+
+static struct dsi_cmd_desc fts_cmd2_close_cmd[] = {
+	
+
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code1)}, cmd2_open_code1},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code2)}, cmd2_open_code2},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code3)}, cmd2_open_code3},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code4)}, cmd2_open_code4},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code5)}, cmd2_open_code5},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code6)}, cmd2_open_code6},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code7)}, cmd2_open_code7},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code8)}, cmd2_open_code8},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code9)}, cmd2_open_code9},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code10)}, cmd2_open_code10},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code11)}, cmd2_open_code11},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code12)}, cmd2_open_code12},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code13)}, cmd2_open_code13},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code14)}, cmd2_open_code14},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code15)}, cmd2_open_code15},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code16)}, cmd2_open_code16},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code17)}, cmd2_open_code17},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code18)}, cmd2_open_code18},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_open_code19)}, cmd2_open_code19},
+
+//test
+	{{DTYPE_DCS_WRITE1, 1, 0, 0, 0, sizeof(cmd2_open_code21)}, cmd2_open_code21},
+		
+
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code1)}, cmd2_close_code1},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code2)}, cmd2_close_code2},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code3)}, cmd2_close_code3},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code4)}, cmd2_close_code4},
+
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code5)}, cmd2_close_code5},
+
+};
+
+static struct dsi_cmd_desc fts_cmd2_close_cmd[] = {
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code1)}, cmd2_close_code1},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code2)}, cmd2_close_code2},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code3)}, cmd2_close_code3},
+	{{DTYPE_DCS_LWRITE, 1, 0, 0, 0, sizeof(cmd2_close_code4)}, cmd2_close_code4},
+};
+
+void fts_cmd2_enable(struct mdss_dsi_ctrl_pdata *ctrl, bool enable)
+{
+	struct dcs_cmd_req cmdreq;
+	struct mdss_panel_info *pinfo;
+
+	pinfo = &(ctrl->panel_data.panel_info);
+	if (pinfo->dcs_cmd_by_left && ctrl->ndx != DSI_CTRL_LEFT)
+		return;
+
+	memset(&cmdreq, 0, sizeof(cmdreq));
+	if (enable)
+	{
+		cmdreq.cmds = fts_cmd2_open_cmd;
+		cmdreq.cmds_cnt = 1;//19;
+	}
+	else
+	{	
+		cmdreq.cmds = fts_cmd2_close_cmd;
+		cmdreq.cmds_cnt = 1;//4;
+	}
+	cmdreq.flags = CMD_REQ_COMMIT | CMD_REQ_HS_MODE;
+	cmdreq.rlen = 0;
+	cmdreq.cb = NULL;
+
+	mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+}
+#endif
+
+static int aie_level = 0;//add by yusen.ke.sz@tcl.com at 20180314 for add show SRE level 
+
+static ssize_t aie_level_set(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	struct mdss_panel_info *pinfo = mfd->panel_info;
+	struct mdss_panel_data *pdata =
+			container_of(pinfo, struct mdss_panel_data, panel_info);
+	struct dcs_cmd_req cmdreq;
+	struct dsi_cmd_desc cmds;
+	char cmds_buf[2] = {0};
+
+	
+	struct mdss_dsi_ctrl_pdata *ctrl = NULL;
+	ssize_t ret;
+
+	ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+						panel_data);
+//add by yusen.ke.sz@tcl.com at 20180424 for fix PR6257041	
+	if (mdss_panel_is_power_off(mfd->panel_power_state)) {
+		return 0;
+		}
+//add end	
+#if 0
+if (aie_level)
+	fts_cmd2_enable(ctrl, true);
+else
+	fts_cmd2_enable(ctrl, false);
+#else
+	memset(&cmdreq, 0, sizeof(cmdreq));
+	
+	if (sscanf(buf, "%d", &aie_level) != 1)
+		return -EINVAL;
+	
+	if (aie_level < 0 || aie_level > 3)
+		
+		return -EINVAL;
+	
+	cmds_buf[0] = 0x92;
+	
+
+	switch (aie_level) {
+		case 0:
+			cmds_buf[1] = 0x00;
+			break;
+		case 1:
+			cmds_buf[1] = 0x80;
+			break;
+		case 2:
+			cmds_buf[1] = 0x81;
+			break;
+		case 3:
+			cmds_buf[1] = 0x82;
+			break;
+		default:
+			pr_err("%s:ERROR aie_level=%d\n", __func__, aie_level);
+		break;
+	}
+
+	cmds.dchdr.dtype = 0x15;
+	cmds.dchdr.vc = 0;
+	cmds.dchdr.ack = 0;
+	cmds.dchdr.wait = 0;
+	cmds.dchdr.last = 1;
+	cmds.dchdr.dlen = 2;
+	cmds.payload = cmds_buf;
+
+	cmdreq.cmds = &cmds;
+	cmdreq.cmds_cnt = 1; /* only one command at a time through this command*/
+	cmdreq.flags = CMD_REQ_COMMIT | CMD_REQ_HS_MODE;
+	cmdreq.rlen = 0;
+	cmdreq.cb = NULL;
+
+	ret = mdss_dsi_cmdlist_put(ctrl, &cmdreq);
+#endif	
+	//fts_cmd2_enable(ctrl, false);
+
+	return count;
+}
+//add by yusen.ke.sz@tcl.com at 20180314 for add show SRE level begin
+static ssize_t aie_level_get(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	ssize_t ret = 0;
+	ret = snprintf(buf, PAGE_SIZE, "%d\n", aie_level);
+	return ret;
+}
+//add end
+
+static DEVICE_ATTR(aie_level, S_IRUGO|S_IRGRP|S_IWUSR|S_IWGRP, aie_level_get, aie_level_set);//modify by yusen.ke.sz@tcl.com at 20180314 for add show SRE level 
+
+static struct attribute *mdss_fb_attrs_internal[] = {
+
+	&dev_attr_aie_level.attr,
+	NULL,
+};
+
+
+
+static struct attribute_group mdss_fb_attr_internal_group = {
+	.attrs = mdss_fb_attrs_internal,
+};
+
+
+//add by yusen.ke.sz@tcl.com at 20180313 for add SRE function end
+
+
+
 static DEVICE_ATTR(msm_fb_type, S_IRUGO, mdss_fb_get_type, NULL);
 static DEVICE_ATTR(msm_fb_split, S_IRUGO | S_IWUSR, mdss_fb_show_split,
 					mdss_fb_store_split);
@@ -926,7 +1183,15 @@ static struct attribute_group mdss_fb_attr_group = {
 static int mdss_fb_create_sysfs(struct msm_fb_data_type *mfd)
 {
 	int rc;
-
+	//add by yusen.ke.sz@tcl.com at 20180313 for add sre function
+	if ((mfd->panel.type == MIPI_VIDEO_PANEL) || (mfd->panel.type == MIPI_CMD_PANEL)) {
+		rc = sysfs_create_group(&mfd->fbi->dev->kobj, &mdss_fb_attr_internal_group);
+		if (rc) {
+			pr_err("sysfs mdss_fb_attr_internal_group creation failed, rc=%d\n", rc);
+			return rc;
+		}
+	}
+	//add end
 	rc = sysfs_create_group(&mfd->fbi->dev->kobj, &mdss_fb_attr_group);
 	if (rc)
 		pr_err("sysfs group creation failed, rc=%d\n", rc);
@@ -1192,6 +1457,7 @@ static int mdss_fb_init_panel_modes(struct msm_fb_data_type *mfd,
 
 	return 0;
 }
+
 
 static int mdss_fb_probe(struct platform_device *pdev)
 {

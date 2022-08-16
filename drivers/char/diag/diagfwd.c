@@ -982,9 +982,16 @@ int diag_process_apps_pkt(unsigned char *buf, int len,
 		diag_send_rsp(driver->apps_rsp_buf, 1);
 		msleep(5000);
 		/* call download API */
+//[Feature]-Add-BEGIN by TCTSZ.yongzhong.cheng@tcl.com,2015/6/30,for ALM367655: enter 9008 download mode
+#if  1 // CONFIG_JRD_BUTTON_DIAG
+		printk(KERN_CRIT "diag: 9008 download mode set, Rebooting SoC..\n");
+		kernel_restart("edl");
+#else
 		msm_set_restart_mode(RESTART_DLOAD);
 		printk(KERN_CRIT "diag: download mode set, Rebooting SoC..\n");
 		kernel_restart(NULL);
+#endif
+//[Feature]-Add-END by TCTSZ.yongzhong.cheng@TCL.com, 2015/6/30,for ALM367655
 		/* Not required, represents that command isnt sent to modem */
 		return 0;
 	}

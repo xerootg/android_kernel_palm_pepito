@@ -36,6 +36,9 @@
 #include <linux/msm-bus.h>
 #include <linux/msm-bus-board.h>
 #include <linux/i2c/i2c-msm-v2.h>
+/* BEGIN log to mobile_info, by xiaoju.liang@tcl.com */
+#include <linux/klog.h>
+/* END xiaoju.liang@tcl.com */
 
 #ifdef DEBUG
 static const enum msm_i2_debug_level DEFAULT_DBG_LVL = MSM_DBG;
@@ -107,6 +110,8 @@ static void i2c_msm_dbg_dump_diag(struct i2c_msm_ctrl *ctrl,
 		str = buf;
 	}
 
+	/* BEGIN log to mobile_info, by xiaoju.liang@tcl.com */
+#ifndef CONFIG_TCT_DEBUG_KLOG
 	/* dump xfer details */
 	dev_err(ctrl->dev,
 		"%s: msgs(n:%d cur:%d %s) bc(rx:%zu tx:%zu) mode:%s slv_addr:0x%0x MSTR_STS:0x%08x OPER:0x%08x\n",
@@ -114,6 +119,15 @@ static void i2c_msm_dbg_dump_diag(struct i2c_msm_ctrl *ctrl,
 		xfer->cur_buf.is_rx ? "rx" : "tx", xfer->rx_cnt, xfer->tx_cnt,
 		i2c_msm_mode_str_tbl[xfer->mode_id], xfer->msgs->addr,
 		status, qup_op);
+#else
+	klog_err("%s %s: %s: msgs(n:%d cur:%d %s) bc(rx:%zu tx:%zu) mode:%s slv_addr:0x%0x MSTR_STS:0x%08x OPER:0x%08x\n",
+		dev_driver_string(ctrl->dev), dev_name(ctrl->dev),
+		str, xfer->msg_cnt, xfer->cur_buf.msg_idx,
+		xfer->cur_buf.is_rx ? "rx" : "tx", xfer->rx_cnt, xfer->tx_cnt,
+		i2c_msm_mode_str_tbl[xfer->mode_id], xfer->msgs->addr,
+		status, qup_op);
+#endif
+	/* END log to mobile_info, by xiaoju.liang@tcl.com */
 }
 
 static u32 i2c_msm_reg_io_modes_out_blk_sz(u32 qup_io_modes)
@@ -1506,8 +1520,15 @@ static bool i2c_msm_qup_slv_holds_bus(struct i2c_msm_ctrl *ctrl)
 				(status & QUP_BUS_ACTIVE) &&
 				!(status & QUP_BUS_MASTER);
 	if (slv_holds_bus)
+		/* BEGIN log to mobile_info, by xiaoju.liang@tcl.com */
+#ifndef CONFIG_TCT_DEBUG_KLOG
 		dev_info(ctrl->dev,
 			"bus lines held low by a slave detected\n");
+#else
+		klog_err("%s %s: bus lines held low by a slave detected\n",
+				dev_driver_string(ctrl->dev), dev_name(ctrl->dev));
+#endif
+		/* END xiaoju.liang@tcl.com */
 
 	return slv_holds_bus;
 }

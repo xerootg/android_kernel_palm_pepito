@@ -14,6 +14,37 @@
 #include "msm8937-pinctrl.dtsi"
 #include "msm8937-camera-sensor-mtp.dtsi"
 
+/* MODIFIED-BEGIN by junwen.ye, 2017-10-10,BUG-5392294*/
+/* add begin by YJW,2017/10/10,BUG-5393585 */
+#include "dsi-panel-ft8613-720p-video.dtsi"
+#include "dsi-panel-ft8613-720p-video-1280p.dtsi" // MODIFIED by junwen.ye, 2017-11-21,BUG-5628800
+
+&i2c_3 { /* BLSP1 QUP3 */
+	status = "ok";
+        focaltech@38 {
+		compatible = "focaltech,fts";
+		reg = <0x38>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <65 0x02>;
+		focaltech,reset-gpio = <&tlmm 64 0x01>;
+		focaltech,irq-gpio = <&tlmm 65 0x02>;
+                //focaltech,irq-on-state = <0>;
+		focaltech,max-touch-number = <5>;
+		focaltech,display-coords =  <0 0 720 1440>;
+		focaltech,have-key;
+		focaltech,key-number = <1>;
+		focaltech,keys = <102>;
+		focaltech,key-y-coord = <2000>;
+		focaltech,key-x-coords = <200>;
+	        //pinctrl-0 = <&ts_int_active &ts_reset_active>;
+		//pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+		//pinctrl-2 = <&ts_release>;
+                //focaltech,i2c-pull-up;
+           };
+};
+/* add end by YJW,2017/10/10,BUG-5393585 */
+/* MODIFIED-END by junwen.ye,BUG-5392294*/
+
 &flash_led {
 	compatible = "qcom,qpnp-flash-led";
 	reg = <0xd300 0x100>;
@@ -208,14 +239,14 @@
 &mdss_dsi {
 	hw-config = "single_dsi";
 };
-
+/*Modified begin by YJW 2017/10/10,BUG-5392294 */
 &mdss_dsi0 {
-	qcom,dsi-pref-prim-pan = <&dsi_truly_1080_vid>;
+	qcom,dsi-pref-prim-pan = <&dsi_ft8613_720_video>;
 	pinctrl-names = "mdss_default", "mdss_sleep";
-	pinctrl-0 = <&mdss_dsi_active &mdss_te_active>;
-	pinctrl-1 = <&mdss_dsi_suspend &mdss_te_suspend>;
+	pinctrl-0 = <&mdss_dsi_active>;
+	pinctrl-1 = <&mdss_dsi_suspend>;
 
-	qcom,platform-te-gpio = <&tlmm 24 0>;
+	//qcom,platform-te-gpio = <&tlmm 24 0>;
 	qcom,platform-enable-gpio = <&tlmm 99 0>;
 	qcom,platform-reset-gpio = <&tlmm 60 0>;
 	qcom,platform-bklight-en-gpio = <&tlmm 98 0>;
@@ -234,12 +265,51 @@
 	qcom,platform-bklight-en-gpio = <&tlmm 98 0>;
 };
 
-&dsi_truly_1080_vid {
-	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
-	qcom,mdss-dsi-pan-enable-dynamic-fps;
-	qcom,mdss-dsi-pan-fps-update = "dfps_immediate_porch_mode_vfp";
+/* MODIFIED-BEGIN by junwen.ye, 2017-11-21,BUG-5628800*/
+&mdss_dsi0 {
+	qcom,dsi-pref-prim-pan = <&dsi_ft8613_720_video_1280p>;
+	pinctrl-names = "mdss_default", "mdss_sleep";
+	pinctrl-0 = <&mdss_dsi_active>;
+	pinctrl-1 = <&mdss_dsi_suspend>;
+
+	//qcom,platform-te-gpio = <&tlmm 24 0>;
+	qcom,platform-enable-gpio = <&tlmm 99 0>;
+	qcom,platform-reset-gpio = <&tlmm 60 0>;
+	qcom,platform-bklight-en-gpio = <&tlmm 98 0>;
 };
 
+&mdss_dsi1 {
+	status = "disabled";
+};
+/* MODIFIED-END by junwen.ye,BUG-5628800*/
+
+
+/* MODIFIED-BEGIN by junwen.ye, 2017-10-10,BUG-5392294*/
+/* modify by biao.wei@tcl.com, 2017-12-1,BUG-5397744*/
+&dsi_ft8613_720_video {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	//qcom,cont-splash-enabled;
+    qcom,mdss-dsi-pan-enable-dynamic-fps;
+    qcom,mdss-dsi-pan-fps-update = "dfps_immediate_porch_mode_vfp";
+    qcom,mdss-dsi-min-refresh-rate = <30>;
+    qcom,min-refresh-rate = <30>;
+    qcom,max-refresh-rate = <60>;
+};
+
+/* MODIFIED-BEGIN by junwen.ye, 2017-11-21,BUG-5628800*/
+/* modify by biao.wei@tcl.com, 2017-12-1,BUG-5397744*/
+&dsi_ft8613_720_video_1280p {
+	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
+	//qcom,cont-splash-enabled;
+    qcom,mdss-dsi-pan-enable-dynamic-fps;
+    qcom,mdss-dsi-pan-fps-update = "dfps_immediate_porch_mode_vfp";
+    qcom,mdss-dsi-min-refresh-rate = <35>;
+    qcom,min-refresh-rate = <35>;
+    qcom,max-refresh-rate = <60>;
+};
+/* MODIFIED-END by junwen.ye,BUG-5628800*/
+/*Modified end by YJW 2017/10/10,BUG-5392294 */
+/* MODIFIED-END by junwen.ye,BUG-5392294*/
 &dsi_truly_1080_cmd {
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply>;
 	qcom,ulps-enabled;

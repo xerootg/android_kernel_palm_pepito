@@ -17,7 +17,9 @@
 #include "camera.h"
 #include "msm_cci.h"
 #include "msm_camera_dt_util.h"
-
+//Begin add by (TCTSZ) qiurongzhang@tcl.com for camera engineer mode, 20180112
+#include "camera_tct_func.h"
+//End add by (TCTSZ) qiurongzhang@tcl.com for camera engineer mode, 20180112
 /* Logging macro */
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
@@ -676,6 +678,138 @@ static void msm_sensor_fill_sensor_info(struct msm_sensor_ctrl_t *s_ctrl,
 
 	strlcpy(entity_name, s_ctrl->msm_sd.sd.entity.name, MAX_SENSOR_NAME);
 }
+int sensor_index = 0;
+unsigned short senor_address = 0x00;
+uint16_t sensor_data =0x00;
+static ssize_t sensor_index_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	int ret;
+
+	ret = snprintf(buf, 50, "%d\n", sensor_index);
+	return ret;
+}
+
+static ssize_t  sensor_index_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t size)
+{
+	ssize_t ret = -EINVAL;
+	unsigned long val = 0;
+	ret = kstrtoul(buf, 0, &val);
+	if (ret)
+		return size;
+	sensor_index = val;
+	return size;
+}
+
+static ssize_t sensor_address_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	int ret;
+
+	ret = snprintf(buf, 50, "%d\n", senor_address);
+	return ret;
+}
+
+static ssize_t  sensor_address_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t size)
+{
+	ssize_t ret = -EINVAL;
+	unsigned long val = 0;
+	ret = kstrtoul(buf, 0, &val);
+	if (ret)
+		return size;
+	senor_address = val;
+	return size;
+}
+
+static ssize_t sensor_data_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	int ret;
+	struct msm_sensor_ctrl_t            *s_ctrl = NULL;
+	struct msm_camera_i2c_client *sensor_i2c_client;
+
+	s_ctrl = g_sctrl[sensor_index];
+	sensor_i2c_client = s_ctrl->sensor_i2c_client;
+	printk("index:%d address:0x%x \n", sensor_index, senor_address);
+
+	if(sensor_i2c_client != NULL)
+	{
+		ret = sensor_i2c_client->i2c_func_tbl->i2c_read(
+			sensor_i2c_client, senor_address,
+			&sensor_data, MSM_CAMERA_I2C_BYTE_DATA);
+	}
+    printk("value 0x%x \n", sensor_data);
+
+	ret = snprintf(buf, 50, "%d\n", sensor_data);
+	return ret;
+}
+ 
+static ssize_t  sensor_data_store(struct device *dev,
+				struct device_attribute *attr,
+				const char *buf, size_t size)
+{
+	ssize_t ret = -EINVAL;
+	unsigned  long val = 0;
+	struct msm_sensor_ctrl_t            *s_ctrl = NULL;
+	struct msm_camera_i2c_client *sensor_i2c_client;
+
+	ret = kstrtoul(buf, 0, &val);
+	if (ret)
+		return size;
+
+	sensor_data = val;
+	s_ctrl = g_sctrl[sensor_index];
+	sensor_i2c_client = s_ctrl->sensor_i2c_client;
+	printk("index:%d address:0x%x data:0x%x\n", sensor_index, senor_address, sensor_data);
+
+	if(sensor_i2c_client != NULL)
+	{
+	ret = sensor_i2c_client->i2c_func_tbl->i2c_write(
+			sensor_i2c_client, senor_address,
+			sensor_data, MSM_CAMERA_I2C_BYTE_DATA);
+	}
+	sensor_data = 0;
+	return size;
+}
+
+static DEVICE_ATTR(sensor_index, 0664, sensor_index_show, sensor_index_store);
+
+static DEVICE_ATTR(sensor_address, 0664, sensor_address_show, sensor_address_store);
+static DEVICE_ATTR(sensor_data, 0664, sensor_data_show, sensor_data_store);
+
+static struct class * camera_class;
+static struct device * camera_sensor;
+void camera_device_register ( void )
+{
+	int rc = 0;
+	camera_class = class_create(THIS_MODULE, "camera_device");
+	if (IS_ERR(camera_class))
+		pr_err("Failed to create class(tp_device_class)!\n");
+
+	camera_sensor = device_create(camera_class, NULL, 0, NULL, "camera_sensor");
+	if (IS_ERR(camera_sensor))
+		pr_err("Failed to create device(tp_gesture_dev)!\n");
+
+	rc = device_create_file(camera_sensor, &dev_attr_sensor_index);
+	if ( rc < 0)
+		pr_err("Failed to create device file(%s)!\n", dev_attr_sensor_index.attr.name);
+
+	rc = device_create_file(camera_sensor, &dev_attr_sensor_address);
+	if ( rc < 0)
+		pr_err("Failed to create device file(%s)!\n", dev_attr_sensor_address.attr.name);
+
+	rc = device_create_file(camera_sensor, &dev_attr_sensor_data);
+	if ( rc < 0)
+		pr_err("Failed to create device file(%s)!\n", dev_attr_sensor_data.attr.name);
+
+}
+
+int camera_device_registered = 0;
+
 
 /* static function definition */
 int32_t msm_sensor_driver_probe(void *setting,
@@ -695,7 +829,11 @@ int32_t msm_sensor_driver_probe(void *setting,
 		pr_err("failed: slave_info %pK", setting);
 		return -EINVAL;
 	}
-
+        pr_err("%s: enter \n",__func__);
+	if(!camera_device_registered){
+		camera_device_registered = 1;
+		camera_device_register();
+	}
 	/* Allocate memory for slave info */
 	slave_info = kzalloc(sizeof(*slave_info), GFP_KERNEL);
 	if (!slave_info)
@@ -1028,6 +1166,10 @@ CSID_TG:
 	 * probed on this slot
 	 */
 	s_ctrl->is_probe_succeed = 1;
+	//Begin add by (TCTSZ) qiurongzhang@tcl.com for camera engineer mode, 20180112
+	if(s_ctrl->is_probe_succeed)
+		sensor_sysfs_init(slave_info->sensor_name,(int)(s_ctrl->sensordata->sensor_info->position));
+	//End add
 	return rc;
 
 camera_power_down:

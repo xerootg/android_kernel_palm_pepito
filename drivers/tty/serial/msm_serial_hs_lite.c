@@ -52,6 +52,12 @@
 #include <linux/msm-bus.h>
 #include "msm_serial_hs_hwreg.h"
 
+//-add-begin-by-TCTSZ.haimei.liu@tcl.com.for TARGET_BUILD_SHIP to control kernel uart log. 2018/1/3.task:5844759.
+//modify-begin-by-TCTSZ.haimei.liu@tcl.com.uart driver make stardup time longer.PR:5973894.2018/2/9.
+ unsigned int lk_uart_enable_flag = 0;
+//modify-end-by-TCTSZ.haimei.liu@tcl.com.uart driver make stardup time longer.PR:5973894.2018/2/9.
+//-add-end-by-TCTSZ.haimei.liu@tcl.com.for TARGET_BUILD_SHIP to control kernel uart log. 2018/1/3.task:5844759.
+
 /*
  * There are 3 different kind of UART Core available on MSM.
  * High Speed UART (i.e. Legacy HSUART), GSBI based HSUART
@@ -1958,9 +1964,24 @@ static struct platform_driver msm_hsl_platform_driver = {
 	},
 };
 
+extern char *saved_command_line;  //add-by-TCTSZ.haimei.liu@tcl.com.uart driver make stardup time longer.PR:5973894.2018/2/9. 
 static int __init msm_serial_hsl_init(void)
 {
+//-add-begin-by-TCTSZ.haimei.liu@tcl.com.for TARGET_BUILD_SHIP to control kernel uart log. 2018/1/3.task:5844759.
+//modify-begin-by-TCTSZ.haimei.liu@tcl.com.uart driver make stardup time longer.PR:5973894.2018/2/9.
+	if(strstr(saved_command_line,"uart_enable=1")){
+       		lk_uart_enable_flag =1;
+       		pr_err("uart enabled uart_enable=1!\n");
+	}else{
+     		 pr_err("uart disabled uart_enable=0!\n");
+	}
+	if(!lk_uart_enable_flag){
+		 pr_err("%s:UART disabled in user build or mini version\n",__func__);
+		return 0;
+	    }else{
 	int ret;
+//modify-end-by-TCTSZ.haimei.liu@tcl.com.uart driver make stardup time longer.PR:5973894.2018/2/9.
+//-add-end-by-TCTSZ.haimei.liu@tcl.com.for TARGET_BUILD_SHIP to control kernel uart log. 2018/1/3.task:5844759.
 
 	ret = uart_register_driver(&msm_hsl_uart_driver);
 	if (unlikely(ret))
@@ -1975,8 +1996,10 @@ static int __init msm_serial_hsl_init(void)
 		uart_unregister_driver(&msm_hsl_uart_driver);
 
 	pr_info("driver initialized\n");
-
+	
 	return ret;
+
+	}
 }
 
 static void __exit msm_serial_hsl_exit(void)

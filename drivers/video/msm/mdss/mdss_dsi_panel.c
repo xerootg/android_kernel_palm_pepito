@@ -9,6 +9,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+#define CONFIG_BBRY 1
 
 #include <linux/module.h>
 #include <linux/interrupt.h>
@@ -25,6 +26,19 @@
 
 #include "mdss_dsi.h"
 #ifdef TARGET_HW_MDSS_HDMI
+//add by yusen.ke.sz@tcl.com at 20160623 for display Mipi clk
+#include <linux/proc_fs.h>
+#include <linux/magic.h>
+#include <linux/atomic.h>
+
+//add end
+//add by yusen.ke.sz@tcl.com at 20160114 for enable backlight log
+#include <linux/sched.h>
+#include <linux/uaccess.h>
+#include <asm/ioctls.h>
+#include <linux/ctype.h>
+
+//add end
 #include "mdss_dba_utils.h"
 #endif
 #define DT_CMD_HDR 6
@@ -34,6 +48,12 @@
 #define VSYNC_DELAY msecs_to_jiffies(17)
 
 DEFINE_LED_TRIGGER(bl_led_trigger);
+//add by yusen.ke.sz@tcl.com at 20160623 for display lcd information
+uint32_t iFramerate=0;
+char sPanelName[20]= {0};
+char strPanelParaVer[16]={0};
+//add end
+int bLogEnable=0;//add by yusen.ke.sz@tcl.com at 20160114 for backlight log enable 
 
 void mdss_dsi_panel_pwm_cfg(struct mdss_dsi_ctrl_pdata *ctrl)
 {
@@ -126,7 +146,9 @@ static void mdss_dsi_panel_bklt_pwm(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 		ctrl->pwm_enabled = 1;
 	}
 }
-
+/*modified by yjw,for compatible tp,bug-5653823 ,begin*/
+int ft8613_flag1 = 0;
+/*modified by yjw,for compatible tp,bug-5653823 ,end*/
 static char dcs_cmd[2] = {0x54, 0x00}; /* DTYPE_DCS_READ */
 static struct dsi_cmd_desc dcs_read_cmd = {
 	{DTYPE_DCS_READ, 1, 0, 1, 5, sizeof(dcs_cmd)},
@@ -302,12 +324,20 @@ static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 			goto disp_en_gpio_err;
 		}
 	}
+#ifdef CONFIG_BBRY
+	/* We've given the touch driver control of the reset GPIO,
+	 * so it is valid for it to not be defined in the display dt */
+	if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
+#endif
 	rc = gpio_request(ctrl_pdata->rst_gpio, "disp_rst_n");
 	if (rc) {
 		pr_err("request reset gpio failed, rc=%d\n",
 			rc);
 		goto rst_gpio_err;
 	}
+#ifdef CONFIG_BBRY
+	}
+#endif
 	if (gpio_is_valid(ctrl_pdata->bklt_en_gpio)) {
 		rc = gpio_request(ctrl_pdata->bklt_en_gpio,
 						"bklt_enable");
@@ -393,16 +423,22 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 	}
 
 	if (!gpio_is_valid(ctrl_pdata->disp_en_gpio)) {
+#ifdef CONFIG_BBRY
+		pr_debug("%s:%d, disp_en_gpio not configured\n",
+			   __func__, __LINE__);
+#else
 		pr_debug("%s:%d, reset line not configured\n",
 			   __func__, __LINE__);
+#endif
 	}
 
+#ifndef CONFIG_BBRY
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio)) {
 		pr_debug("%s:%d, reset line not configured\n",
 			   __func__, __LINE__);
 		return rc;
 	}
-
+#endif
 	pr_debug("%s: enable = %d\n", __func__, enable);
 
 	if (enable) {
@@ -421,7 +457,9 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 					goto exit;
 				}
 			}
-
+#ifdef CONFIG_BBRY
+			if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
+#endif
 			if (pdata->panel_info.rst_seq_len) {
 				rc = gpio_direction_output(ctrl_pdata->rst_gpio,
 					pdata->panel_info.rst_seq[0]);
@@ -438,6 +476,9 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 				if (pdata->panel_info.rst_seq[++i])
 					usleep_range(pinfo->rst_seq[i] * 1000, pinfo->rst_seq[i] * 1000);
 			}
+#ifdef CONFIG_BBRY
+			}
+#endif
 
 			if (gpio_is_valid(ctrl_pdata->bklt_en_gpio)) {
 				rc = gpio_direction_output(
@@ -480,8 +521,14 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			gpio_set_value((ctrl_pdata->disp_en_gpio), 0);
 			gpio_free(ctrl_pdata->disp_en_gpio);
 		}
+#ifdef CONFIG_BBRY
+		if (gpio_is_valid(ctrl_pdata->rst_gpio)) {
+#endif
 		gpio_set_value((ctrl_pdata->rst_gpio), 0);
 		gpio_free(ctrl_pdata->rst_gpio);
+#ifdef CONFIG_BBRY
+		}
+#endif
 		if (gpio_is_valid(ctrl_pdata->mode_gpio))
 			gpio_free(ctrl_pdata->mode_gpio);
 	}
@@ -794,7 +841,7 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 
 	if ((bl_level < pdata->panel_info.bl_min) && (bl_level != 0))
 		bl_level = pdata->panel_info.bl_min;
-
+	
 	switch (ctrl_pdata->bklt_ctrl) {
 	case BL_WLED:
 		led_trigger_event(bl_led_trigger, bl_level);
@@ -893,7 +940,7 @@ static int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	mdss_dsi_panel_apply_display_setting(pdata, pinfo->persist_mode);
 
 end:
-	pr_debug("%s:-\n", __func__);
+	pr_err("Report pwrkey %s:-\n", __func__);//modify by yusen.ke.sz@tcl.com at 20150623 for add panel information 
 	return ret;
 }
 
@@ -996,7 +1043,7 @@ static int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 end:
 	/* clear idle state */
 	ctrl->idle = false;
-	pr_debug("%s:-\n", __func__);
+	pr_err("Report pwrkey %s:-\n", __func__);//modify by yusen.ke.sz@tcl.com at 20150623 for add panel information 
 	return 0;
 }
 
@@ -2082,6 +2129,220 @@ static int mdss_dsi_parse_panel_features(struct device_node *np,
 	return 0;
 }
 
+//add begin by yusen.ke.sz@tcl.com at 20160516 for set mipi clk
+/*static s32 atoi(char *psz_buf)
+{
+	char *pch = psz_buf;
+	s32 base = 0;
+
+	while (isspace(*pch))
+		pch++;
+
+	if (*pch == '-' || *pch == '+') {
+		base = 10;
+		pch++;
+	} else if (*pch && tolower(pch[strlen(pch) - 1]) == 'h') {
+		base = 16;
+	}
+
+	return simple_strtoul(pch, NULL, base);
+}
+
+static ssize_t ts_Framerate_write(struct file *file, const char __user *buf,
+				   size_t count, loff_t *ppos)
+{
+	if (count) {
+		char ts_switch[16]={0};
+	
+		simple_write_to_buffer(ts_switch,16,ppos,buf,count);
+		//printk(KERN_ERR "buf = %s ; ts_switch =%s \n", buf, ts_switch);
+		iFramerate = atoi(ts_switch);
+		
+		if( iFramerate < 0 )
+			iFramerate = 0;
+		else
+			refresh = 2;
+		printk(KERN_INFO "logger: ts_Framerate_write iFramerate ==%d\n",iFramerate);
+	}
+
+	return count;
+}*/
+//add end
+
+static ssize_t ts_switch_read(struct file *file, char __user *user_buf,
+         size_t count, loff_t *ppos)
+{
+	char *buff;
+    	int desc = 0;
+    	ssize_t ret;
+	buff = kmalloc(1024, GFP_KERNEL);
+	if (!buff)
+		return -ENOMEM;
+   	 desc = sprintf(buff, "%d\n", iFramerate);
+	ret = simple_read_from_buffer(user_buf, count, ppos,
+		buff, desc);
+  	  kfree(buff);
+	return ret;
+}
+static ssize_t ts_panel_name_read(struct file *file, char __user *user_buf,
+         size_t count, loff_t *ppos)
+{
+	char *buff;
+    	int desc = 0;
+    	ssize_t ret;
+	buff = kmalloc(1024, GFP_KERNEL);
+	if (!buff)
+		return -ENOMEM;
+   	 desc = sprintf(buff, "%s\n", sPanelName);
+	ret = simple_read_from_buffer(user_buf, count, ppos,
+		buff, desc);
+  	  kfree(buff);
+	return ret;
+}
+static ssize_t ts_panel_para_date_read(struct file *file, char __user *user_buf,
+         size_t count, loff_t *ppos)
+{
+	char *buff;
+    	int desc = 0;
+    	ssize_t ret;
+	buff = kmalloc(1024, GFP_KERNEL);
+	if (!buff)
+		return -ENOMEM;
+   	 desc = sprintf(buff, "%s\n", strPanelParaVer);
+	ret = simple_read_from_buffer(user_buf, count, ppos,
+		buff, desc);
+  	  kfree(buff);
+	return ret;
+}
+
+//add by yusen.ke.sz@tcl.com at 20160114 for backlight log enable
+
+static ssize_t ts_LogEnable_write(struct file *file, const char __user *buf,
+				   size_t count, loff_t *ppos)
+{
+	if (count) {
+		char ts_switch;
+
+		if (get_user(ts_switch, buf))
+			return -EFAULT;
+		switch(ts_switch) {
+		case '0':
+			bLogEnable = 0;
+			printk(KERN_INFO "logger: ts_LogEnable_write bLogEnable == 0\n");
+			break;
+		case '1':
+			bLogEnable = 1;
+			printk(KERN_INFO "logger: ts_LogEnable_write bLogEnable == 1\n");
+			break;
+		default:
+			printk(KERN_ERR "logger: ts_LogEnable_write incorrect parameter\n");
+			break;
+		}
+	}
+
+	return count;
+}
+
+
+static ssize_t ts_LogEnable_read(struct file *file, char __user *user_buf,
+         size_t count, loff_t *ppos)
+{
+	char *buff;
+    	int desc = 0;
+    	ssize_t ret;
+	buff = kmalloc(1024, GFP_KERNEL);
+	if (!buff)
+		return -ENOMEM;
+   	 desc = sprintf(buff, "%d\n", bLogEnable);
+	ret = simple_read_from_buffer(user_buf, count, ppos,
+		buff, desc);
+  	  kfree(buff);
+	return ret;
+}
+static struct proc_dir_entry *ts_LogE_file=NULL;
+static struct file_operations LCD_Log_Enable = {
+	.write = ts_LogEnable_write,
+	.read = ts_LogEnable_read,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	};
+
+//add end
+
+static struct proc_dir_entry *ts_pf_file=NULL;
+static struct proc_dir_entry *ts_pn_file=NULL;
+static struct proc_dir_entry *ts_ppd_file=NULL;
+
+static struct file_operations LCD_info_pf = {
+	.write = NULL,//ts_Framerate_write,
+	.read = ts_switch_read,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	};
+static struct file_operations LCD_info_pn = {
+	.write = NULL,
+	.read = ts_panel_name_read,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	};
+static struct file_operations LCD_info_ppd = {
+	.write = NULL,
+	.read = ts_panel_para_date_read,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	};
+static void init_adb_proc(void)
+{
+	ts_pf_file =  proc_create("panel_framerate",
+			S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+			ts_pf_file,
+			&LCD_info_pf);
+	if (ts_pf_file == NULL) {
+		printk(KERN_ERR "panel_framerate: init_log_proc create_proc_entry fails\n");
+	}
+	ts_pn_file =  proc_create("panel_name",
+			S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+			ts_pn_file,
+			&LCD_info_pn);
+	if (ts_pn_file==NULL) {
+		printk(KERN_ERR "panel_name: init_log_proc create_proc_entry fails\n");
+		}
+	ts_ppd_file =  proc_create("panel_para_date",
+			S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+			ts_ppd_file,
+			&LCD_info_ppd);
+	if (ts_ppd_file==NULL) {
+		printk(KERN_ERR "panel_para_date: init_log_proc create_proc_entry fails\n");
+		}
+	/*ts_bl_file  = proc_create("backlight_level",
+			S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+			ts_bl_file,
+			&LCD_info_bl);
+	if (ts_bl_file==NULL) {
+		printk(KERN_ERR "backlight_level: init_log_proc create_proc_entry fails\n");
+		}*/
+	//add by yusen.ke.sz@tcl.com at 20150812 for display resume time
+
+	/*ts_RT_file  = proc_create("Resume_time",
+			S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+			ts_RT_file,
+			&LCD_info_resume_time);
+	if (ts_RT_file==NULL) {
+		printk(KERN_ERR "Resume_time: init_log_proc create_proc_entry fails\n");
+		}*/
+	//add end
+//add by yusen.ke.sz@tcl.com at 20160114 for backlight log enable
+	ts_LogE_file  = proc_create("Backlight_Log_Enable",
+			S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+			ts_LogE_file,
+			&LCD_Log_Enable);
+	if (ts_LogE_file==NULL) {
+		printk(KERN_ERR "backlight_level: init_log_proc create_proc_entry fails\n");
+		}
+//add end
+}
+
+//add end
 static void mdss_dsi_parse_panel_horizintal_line_idle(struct device_node *np,
 	struct mdss_dsi_ctrl_pdata *ctrl)
 {
@@ -2394,6 +2655,9 @@ static int mdss_dsi_panel_timing_from_dt(struct device_node *np,
 
 	rc = of_property_read_u32(np, "qcom,mdss-dsi-panel-framerate", &tmp);
 	pt->timing.frame_rate = !rc ? tmp : DEFAULT_FRAME_RATE;
+	//add by yusen.ke.sz@tcl.com for display lcd information	
+	iFramerate = pt->timing.frame_rate ;		
+	//add end
 	rc = of_property_read_u64(np, "qcom,mdss-dsi-panel-clockrate", &tmp64);
 	if (rc == -EOVERFLOW) {
 		tmp64 = 0;
@@ -2855,14 +3119,29 @@ int mdss_dsi_panel_init(struct device_node *node,
 		pr_info("%s:%d, Panel name not specified\n",
 						__func__, __LINE__);
 	} else {
+/*modified by yjw,for compatible tp,bug-5653823 ,begin*/
+		if(strncmp(panel_name,"ft8613 720p video mode dsi panel",strlen("ft8613 720p video mode dsi panel"))==0)
+			ft8613_flag1 = 1;
+/*modified by yjw,for compatible tp,bug-5653823 ,end*/
 		pr_info("%s: Panel Name = %s\n", __func__, panel_name);
 		strlcpy(&pinfo->panel_name[0], panel_name, MDSS_MAX_PANEL_LEN);
+	//add by yusen.ke.sz@tcl.com at 20160810 fro display panel name
+		if(strncmp(panel_name,"ft8613 720p",strlen("ft8613 720p"))==0)
+				strncpy(sPanelName,"ft8613 720p",12);
+		else if(strncmp(panel_name,"ft8613 1280p",strlen("ft8613 1280p"))==0)
+				strncpy(sPanelName,"ft8613 720p",13);
+			else		
+				strncpy(sPanelName,"UNKOWN LCD",10);
+		if((strrchr(panel_name,'[')!=NULL)&&(strrchr(panel_name,']')!=NULL))
+			strcpy(strPanelParaVer,strrchr(panel_name,'['));
+	//add end
 	}
 	rc = mdss_panel_parse_dt(node, ctrl_pdata);
 	if (rc) {
 		pr_err("%s:%d panel dt parse failed\n", __func__, __LINE__);
 		return rc;
 	}
+	init_adb_proc(); //add by yusen.ke.sz@tcl.com at 20150623 for display panel information
 
 	pinfo->dynamic_switch_pending = false;
 	pinfo->is_lpm_mode = false;

@@ -1322,6 +1322,12 @@ int q6asm_audio_client_buf_alloc_contiguous(unsigned int dir,
 		return 0;
 	}
 	mutex_lock(&ac->cmd_lock);
+	
+	if (bufcnt<=0){
+		pr_err("%s: bufcnt=%d\n", __func__,bufcnt);
+		return -EINVAL;
+	}
+	
 	buf = kzalloc(((sizeof(struct audio_buffer))*bufcnt),
 			GFP_KERNEL);
 

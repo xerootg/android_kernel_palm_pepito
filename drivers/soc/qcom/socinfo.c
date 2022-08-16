@@ -235,6 +235,18 @@ static union {
 /* max socinfo format version supported */
 #define MAX_SOCINFO_FORMAT SOCINFO_VERSION(0, 12)
 
+// add start by TCT-cuiping.shi for get cpu id
+struct hw_st {
+	bool smem_ok;
+	uint32_t device_id;
+	uint32_t corr_jtag_id;
+};
+
+static struct hw_st hw_st_soc = {
+	.smem_ok = 0,
+};
+// add stop by TCT-cuiping.shi for get cpu id
+
 static struct msm_soc_info cpu_of_id[] = {
 
 	/* 7x01 IDs */
@@ -1156,6 +1168,46 @@ msm_get_images(struct device *dev,
 	return pos;
 }
 
+//-Add-Begin-by-TCTSZ.haimei.liu@tcl.com.add hardware board id.2017/12/29.task:5844759.
+/***********************filenode:/sys/devices/soc0/gpio_for_board_id***********************/
+uint32_t socinfo_gpio_board_id(void)
+{
+	uint32_t * gpio_board_id_smem;
+	uint32_t test_forgpio = 0xFFFFFFFF;
+	gpio_board_id_smem = smem_alloc(SMEM_VERSION_GPIO_BOARD_ID, sizeof(uint32_t),0,SMEM_ANY_HOST_FLAG);
+	if(gpio_board_id_smem!=NULL)
+	{
+		pr_info("%s:kernel:share memery get:%u\n", __func__,*gpio_board_id_smem);
+		test_forgpio = *gpio_board_id_smem;
+		pr_info("%s: kernel!get:%u\n", __func__,test_forgpio);
+	}
+	printk("%s: msm_get_gpio_board_id = %u\n", __func__,test_forgpio);
+	return  test_forgpio;
+}
+static ssize_t
+msm_get_gpio_board_id(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n", socinfo_gpio_board_id());
+}
+
+// add start by TCT-cuiping.shi for get cpu id
+static ssize_t
+msm_get_hw_jtag_id(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	if(hw_st_soc.smem_ok== 0)
+		return snprintf(buf, PAGE_SIZE, "hw_jtag read error\n");
+	else
+		return snprintf(buf, PAGE_SIZE, "device_id:0x%x\ncorr_jtag:0x%x\n", hw_st_soc.device_id,hw_st_soc.corr_jtag_id);
+}
+// add stop by TCT-cuiping.shi for get cpu id
+
+
+//-Add-End-by-TCTSZ.haimei.liu@tcl.com.add hardware board id.2017/12/29.task:5844759.
+
 static struct device_attribute msm_soc_attr_raw_version =
 	__ATTR(raw_version, S_IRUGO, msm_get_raw_version,  NULL);
 
@@ -1237,6 +1289,17 @@ static struct device_attribute select_image =
 
 static struct device_attribute images =
 	__ATTR(images, S_IRUGO, msm_get_images, NULL);
+
+//-Add-Begin-by-TCTSZ.haimei.liu@tcl.com.add hardware board id.2017/12/29.task:5844759.
+static struct device_attribute msm_soc_attr_msm_get_gpio_board_id =
+	__ATTR(gpio_for_board_id, S_IRUGO, msm_get_gpio_board_id,  NULL);
+//-Add-End-by-TCTSZ.haimei.liu@tcl.com.add hardware board id.2017/12/29.task:5844759.
+
+// add start by TCT-cuiping.shi for get cpu id
+static struct device_attribute msm_soc_hw_id =
+	__ATTR(hw_jtag_id, S_IRUGO,
+			msm_get_hw_jtag_id, NULL);
+// add stop by TCT-cuiping.shi for get cpu id
 
 static void * __init setup_dummy_socinfo(void)
 {
@@ -1347,6 +1410,13 @@ static void __init populate_soc_sysfs_files(struct device *msm_soc_device)
 	device_create_file(msm_soc_device, &image_crm_version);
 	device_create_file(msm_soc_device, &select_image);
 	device_create_file(msm_soc_device, &images);
+//-Add-Begin-by-TCTSZ.haimei.liu@tcl.com.add hardware board id.2017/12/29.task:5844759.
+	device_create_file(msm_soc_device,&msm_soc_attr_msm_get_gpio_board_id);
+//-Add-End-by-TCTSZ.haimei.liu@tcl.com.add hardware board id.2017/12/29.task:5844759.
+	// add start by TCT-cuiping.shi for get cpu id
+	device_create_file(msm_soc_device,&msm_soc_hw_id);
+	// add stop by TCT-cuiping.shi for get cpu id
+
 
 	switch (socinfo_format) {
 	case SOCINFO_VERSION(0, 12):
@@ -1597,6 +1667,21 @@ static void socinfo_select_format(void)
 		socinfo_format = socinfo->v0_1.format;
 	}
 }
+// add start by TCT-cuiping.shi for get cpu id
+static void hw_init(void)
+{
+	uint32_t * hw_id_smem;
+	hw_id_smem = smem_alloc(SMEM_MDDI_LCD_IDX, 2*sizeof(uint32_t),0,SMEM_ITEM_CACHED_FLAG);
+	if(hw_id_smem!=NULL)
+	{
+		hw_st_soc.smem_ok= 1;
+		hw_st_soc.device_id= *hw_id_smem;
+		hw_st_soc.corr_jtag_id= *(hw_id_smem+1);
+		pr_info("soc device_id=0x%x, core_jtag_id=0x%x\n",hw_st_soc.device_id,hw_st_soc.corr_jtag_id);
+
+	}
+}
+// add  stop by TCT-cuiping.shi for get cpu id
 
 int __init socinfo_init(void)
 {
@@ -1623,6 +1708,7 @@ int __init socinfo_init(void)
 		cur_cpu = cpu_of_id[socinfo->v0_1.id].generic_soc_type;
 
 	boot_stats_init();
+	hw_init();  // add by TCT-cuiping.shi for get cpu id
 	socinfo_print();
 	arch_read_hardware_id = msm_read_hardware_id;
 	socinfo_init_done = true;

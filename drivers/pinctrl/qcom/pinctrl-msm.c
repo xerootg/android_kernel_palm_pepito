@@ -820,7 +820,15 @@ bool msm_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 		val = readl(pctrl->regs + g->intr_status_reg);
 		if (val & BIT(g->intr_status_bit)) {
 			irq_pin = irq_find_mapping(gc->irqdomain, i);
-			handled += generic_handle_irq(irq_pin);
+//modified by zhikui.li@tcl.com Change bhy sensor disable irq warning  begin			
+			//handled += generic_handle_irq(irq_pin);
+			if(irq_pin!=68)//68 is bhy sensor irq
+			     handled += generic_handle_irq(irq_pin);
+			else{
+			     generic_handle_irq(irq_pin);
+			     handled ++;
+			}
+//modified by zhikui.li@tcl.com Change bhy sensor disable irq warning  end			
 		}
 	}
 

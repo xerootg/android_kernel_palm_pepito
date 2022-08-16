@@ -354,8 +354,20 @@ static void snd_complete_urb(struct urb *urb)
 	 * Add this dev state check to avoid to call invalid ctx which is
 	 * free during disconnetion handler.
 	 */
+	 /*[bugfix]-dele-begin by scdtablet jinghuang@tcl.com,5854752 on 20180419*/
+	/*no need  check urb state here.delete it to improve the speed  of switch*/
+	#if 0
 	if (urb->dev->state == USB_STATE_NOTATTACHED)
 		return;
+	#endif
+	/*[bugfix]-dele-end by scdtablet jinghuang@tcl.com,5854752 on 20180419*/
+	
+	 /*[bugfix]-dele-begin by scdtablet jinghuang@tcl.com,5854752 on 20180420*/
+	/*if usb remove ,clear the state*/
+	if (urb->dev->state == USB_STATE_NOTATTACHED)
+		goto exit_clear;
+	/*[bugfix]-dele-end by scdtablet jinghuang@tcl.com,5854752 on 20180420*/
+	
 	if (unlikely(urb->status == -ENOENT ||		/* unlinked */
 		     urb->status == -ENODEV ||		/* device removed */
 		     urb->status == -ECONNRESET ||	/* unlinked */

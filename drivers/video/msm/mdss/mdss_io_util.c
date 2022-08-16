@@ -301,8 +301,13 @@ int msm_dss_enable_vreg(struct dss_vreg *in_vreg, int num_vreg, int enable)
 			regulator_set_optimum_mode(in_vreg[i].vreg,
 				in_vreg[i].load[DSS_REG_MODE_DISABLE]);
 
-			if (regulator_is_enabled(in_vreg[i].vreg))
+			/* MODIFIED-BEGIN by junwen.ye, 2017-10-30,BUG-5424229*/
+			if (regulator_is_enabled(in_vreg[i].vreg)){
+				if (i == 1)
+					mdelay(8);
 				regulator_disable(in_vreg[i].vreg);
+			}
+			/* MODIFIED-END by junwen.ye,BUG-5424229*/
 
 			if (in_vreg[i].post_off_sleep)
 				usleep_range(in_vreg[i].post_off_sleep * 1000,

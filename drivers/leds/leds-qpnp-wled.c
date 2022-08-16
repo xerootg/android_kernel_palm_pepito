@@ -23,6 +23,13 @@
 #include <linux/delay.h>
 #include <linux/leds-qpnp-wled.h>
 
+//add by yusen.ke.sz@tcl.com at 20160623 for display Mipi clk
+#include <linux/proc_fs.h>
+#include <linux/magic.h>
+#include <linux/atomic.h>
+
+//add end
+
 #define QPNP_IRQ_FLAGS	(IRQF_TRIGGER_RISING | \
 			IRQF_TRIGGER_FALLING | \
 			IRQF_ONESHOT)
@@ -792,6 +799,48 @@ static struct device_attribute qpnp_wled_attrs[] = {
 			qpnp_wled_ramp_step_store),
 };
 
+//add by yusen.ke.sz@tcl.com at 20171211 for add backlight information
+int iBklt_Level =0;
+static struct proc_dir_entry *ts_bl_file=NULL;
+
+ssize_t ts_backlight_read(struct file *file, char __user *user_buf,
+         size_t count, loff_t *ppos)
+{
+	char *buff;
+    	int desc = 0;
+    	ssize_t ret;
+	buff = kmalloc(1024, GFP_KERNEL);
+	if (!buff)
+		return -ENOMEM;
+   	 desc = sprintf(buff, "%d\n", iBklt_Level);
+	ret = simple_read_from_buffer(user_buf, count, ppos,
+		buff, desc);
+  	  kfree(buff);
+	return ret;
+}
+
+static struct file_operations LCD_info_bl = {
+	.write = NULL,
+	.read = ts_backlight_read,
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	};
+static void init_adb_proc(void)
+{
+	
+	ts_bl_file  = proc_create("backlight_level",
+			S_IWUSR | S_IWGRP | S_IRUSR | S_IRGRP,
+			ts_bl_file,
+			&LCD_info_bl);
+	if (ts_bl_file==NULL) {
+		printk(KERN_ERR "backlight_level: init_log_proc create_proc_entry fails\n");
+		}
+
+}
+
+//add end
+
+
 /* worker for setting wled brightness */
 static void qpnp_wled_work(struct work_struct *work)
 {
@@ -802,7 +851,7 @@ static void qpnp_wled_work(struct work_struct *work)
 	mutex_lock(&wled->cdev.led_access);
 
 	level = wled->cdev.brightness;
-
+	iBklt_Level = level; //add by yusen.ke.sz@tcl.com at 20171211 for add backlight information
 	if (level) {
 		rc = qpnp_wled_set_level(wled, level);
 		if (rc) {
@@ -819,6 +868,10 @@ static void qpnp_wled_work(struct work_struct *work)
 						level ? "en" : "dis");
 			goto unlock_mutex;
 		}
+		//add by yusen.ke.sz@tcl.com at 20171211 for add backlight log
+		dev_err(&wled->spmi->dev, "Report pwrkey backlight %sable \n",
+						level ? "en" : "dis");
+		//add end
 	}
 
 	wled->prev_state = !!level;
@@ -1760,6 +1813,10 @@ static int qpnp_wled_probe(struct spmi_device *spmi)
 			goto sysfs_fail;
 		}
 	}
+
+
+	init_adb_proc();//add by yusen.ke.sz@tcl.com at 20171211 for add backlight information
+	
 
 	return 0;
 

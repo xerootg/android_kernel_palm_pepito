@@ -17,6 +17,12 @@
 #include "msm_camera_i2c_mux.h"
 #include <linux/regulator/rpm-smd-regulator.h>
 #include <linux/regulator/consumer.h>
+//add start by li.tan@tcl.com for camera otp 20171111
+#include "sensor_otp/sunrise_s5k4h8.h"
+//add end by li.tan@tcl.com for camera otp 20171111
+//Begin add by (TCTSZ) qiurongzhang@tcl.com for camera engineer mode, 20180112
+#include "camera_tct_func.h"
+//End add by (TCTSZ) qiurongzhang@tcl.com for camera engineer mode, 20180112
 
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
@@ -269,13 +275,18 @@ int msm_sensor_match_id(struct msm_sensor_ctrl_t *s_ctrl)
 		return rc;
 	}
 
-	pr_debug("%s: read id: 0x%x expected id 0x%x:\n",
+	//modified by rili.zhong@tcl.com for enable read camera sensor id log, 20171013
+	pr_err("%s: read id: 0x%x expected id 0x%x:\n",
 			__func__, chipid, slave_info->sensor_id);
 	if (msm_sensor_id_by_mask(s_ctrl, chipid) != slave_info->sensor_id) {
 		pr_err("%s chip id %x does not match %x\n",
 				__func__, chipid, slave_info->sensor_id);
 		return -ENODEV;
 	}
+	
+	//Begin add by (TCTSZ) qiurongzhang@tcl.com for camera engineer mode, 20170112
+	cur_sensor_update(s_ctrl);
+	//End add
 	return rc;
 }
 
@@ -895,7 +906,17 @@ static int msm_sensor_config32(struct msm_sensor_ctrl_t *s_ctrl,
 		}
 		break;
 	}
-
+//add start by li.tan@tcl.com for camera otp 20171111
+    case CFG_SENSOR_OTP_UPDATE:{
+#ifdef CONFIG_SUNRISE_S5K4H8_OTP
+    if(S5K4H8_SENSOR_ID == s_ctrl->sensordata->slave_info->sensor_id){
+        pr_err("begin to call sunrise s5k4h8 config \n");
+        sunrise_s5k4h8_otp_config(s_ctrl);
+    }
+#endif 
+        break;
+    }
+//add end by li.tan@tcl.com for camera otp 20171111
 	default:
 		rc = -EFAULT;
 		break;

@@ -239,13 +239,15 @@ int msm_ipc_router_bind(struct socket *sock, struct sockaddr *uaddr,
 
 	if (!sk)
 		return -EINVAL;
-
+/* MODIFIED-BEGIN by junwen.ye, 2017-10-10,BUG-5392294*/
+#if 0
 	if (!check_permissions()) {
 		IPC_RTR_ERR("%s: %s Do not have permissions\n",
 			__func__, current->comm);
 		return -EPERM;
 	}
-
+#endif
+/* MODIFIED-END by junwen.ye,BUG-5392294*/
 	if (!uaddr_len) {
 		IPC_RTR_ERR("%s: Invalid address length\n", __func__);
 		return -EINVAL;

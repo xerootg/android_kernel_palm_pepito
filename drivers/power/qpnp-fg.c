@@ -310,7 +310,7 @@ static struct fg_mem_data fg_backup_regs[FG_BACKUP_MAX] = {
 	BACKUP(MAH_TO_SOC,	0x4A0,   0,      4,     -EINVAL),
 };
 
-static int fg_debug_mask;
+static int fg_debug_mask ;//= FG_IRQS | FG_POWER_SUPPLY | FG_STATUS; // modify by ning.wei for log print
 module_param_named(
 	debug_mask, fg_debug_mask, int, S_IRUSR | S_IWUSR
 );
@@ -546,6 +546,7 @@ struct fg_chip {
 	struct delayed_work	update_sram_data;
 	struct delayed_work	update_temp_work;
 	struct delayed_work	check_empty_work;
+	struct delayed_work check_battid_work;  //added by wei-hu
 	char			*batt_profile;
 	u8			thermal_coefficients[THERMAL_COEFF_N_BYTES];
 	u32			cc_cv_threshold_mv;
@@ -591,6 +592,13 @@ struct fg_chip {
 	bool			batt_cool;
 	int			cold_hysteresis;
 	int			hot_hysteresis;
+
+#if defined(CONFIG_TCT_COMMON)
+	bool		jeita_hysteresis_support_warmcool;
+	int			cool_hysteresis;
+	int			warm_hysteresis;
+#endif
+
 	/* ESR pulse tuning */
 	struct fg_wakeup_source	esr_extract_wakeup_source;
 	struct work_struct	esr_extract_config_work;
@@ -709,6 +717,7 @@ static char *fg_supplicants[] = {
 };
 
 #define DEBUG_PRINT_BUFFER_SIZE 64
+
 static void fill_string(char *str, size_t str_len, u8 *buf, int buf_len)
 {
 	int pos = 0;
@@ -2026,10 +2035,12 @@ static void fg_handle_battery_insertion(struct fg_chip *chip)
 }
 
 
+#if !defined(CONFIG_TCT_COMMON)
 static int soc_to_setpoint(int soc)
 {
 	return DIV_ROUND_CLOSEST(soc * 255, 100);
 }
+#endif
 
 static void batt_to_setpoint_adc(int vbatt_mv, u8 *data)
 {
@@ -2258,8 +2269,10 @@ static int get_prop_capacity(struct fg_chip *chip)
 	if (chip->battery_missing)
 		return MISSING_CAPACITY;
 
+#if !defined(CONFIG_TCT_COMMON)
 	if (!chip->profile_loaded && !chip->use_otp_profile)
 		return DEFAULT_CAPACITY;
+#endif
 
 	if (chip->charge_full)
 		return FULL_CAPACITY;
@@ -2294,8 +2307,13 @@ static int get_prop_capacity(struct fg_chip *chip)
 		return FULL_CAPACITY;
 	}
 
+
+#if defined(CONFIG_TCT_COMMON)
+	return DIV_ROUND_UP(msoc * FULL_CAPACITY , FULL_SOC_RAW);
+#else
 	return DIV_ROUND_CLOSEST((msoc - 1) * (FULL_CAPACITY - 2),
 			FULL_SOC_RAW - 2) + 1;
+#endif
 }
 
 #define HIGH_BIAS	3
@@ -2707,6 +2725,41 @@ out:
 	fg_relax(&chip->sanity_wakeup_source);
 }
 
+//added by wei-hu,for batt_id_check,2018-04-26,start
+static void check_battid_work(struct work_struct *work)
+{
+	struct fg_chip *chip = container_of(work,
+				struct fg_chip,
+				check_battid_work.work);
+	int batt_id = 0;
+	union power_supply_propval val = {0, };
+	batt_id = get_sram_prop_now(chip, FG_DATA_BATT_ID);
+	if(!((batt_id>13000)&& (batt_id<23000)))//byd ID
+	{
+		if(chip->batt_psy)
+		{
+			chip->batt_psy->set_property(chip->batt_psy,
+			POWER_SUPPLY_PROP_CHARGING_ENABLED, &val);
+			printk("%s:battery id is wrong, battery id:%d \n",__func__,batt_id);
+		}
+		else
+		{
+			printk("%s:battery id is wrong, battery id:%d,chip->batt_psy is NULL \n",__func__,batt_id);
+			goto get_batt_fail;
+		}
+	}
+	else
+		printk("%s:battery id is right(BYD), battery id:  %d \n",__func__,batt_id);
+	
+	return;
+
+get_batt_fail:
+	schedule_delayed_work(
+		&chip->check_battid_work,
+		msecs_to_jiffies(1000));
+}
+//added by wei-hu,for batt_id_check,2018-04-26,end
+
 #define SRAM_TIMEOUT_MS			3000
 static void update_sram_data_work(struct work_struct *work)
 {
@@ -2845,6 +2898,11 @@ wait:
 		fg_stay_awake(&chip->slope_limit_wakeup_source);
 		schedule_work(&chip->slope_limiter_work);
 	}
+
+	// add start by TCT-cuiping.shi for battery change event
+	if (chip->power_supply_registered && chip->batt_psy)
+		power_supply_changed(chip->batt_psy);
+	// add stop by TCT-cuiping.shi for battery change event
 
 out:
 	if (chip->sw_rbias_ctrl) {
@@ -3940,6 +3998,13 @@ static bool is_usb_present(struct fg_chip *chip)
 	if (chip->usb_psy)
 		chip->usb_psy->get_property(chip->usb_psy,
 				POWER_SUPPLY_PROP_PRESENT, &prop);
+
+#if defined(CONFIG_TCT_COMMON)
+	if(prop.intval)
+		chip->usb_psy->get_property(chip->usb_psy,
+				POWER_SUPPLY_PROP_ONLINE, &prop);
+#endif
+
 	return prop.intval != 0;
 }
 
@@ -4189,6 +4254,54 @@ static void status_change_work(struct work_struct *work)
 	}
 }
 
+#if defined(CONFIG_TCT_COMMON)
+static void fg_hysteresis_config_warmcool(struct fg_chip *chip)
+{
+	int soft_hot = 0, soft_cold = 0;
+	soft_hot = get_prop_jeita_temp(chip, FG_MEM_SOFT_HOT);
+	soft_cold = get_prop_jeita_temp(chip, FG_MEM_SOFT_COLD);
+
+	if (chip->health == POWER_SUPPLY_HEALTH_WARM && !chip->batt_warm) {
+		/* turn down the sof hot threshold */
+		chip->batt_warm = true;
+		set_prop_jeita_temp(chip, FG_MEM_SOFT_HOT,
+			soft_hot - chip->warm_hysteresis);
+		if (fg_debug_mask & FG_STATUS)
+			pr_err("set [soft] hot threshold: old warm=%d, new warm=%d\n",
+				soft_hot, soft_hot - chip->warm_hysteresis);
+	} else if (chip->health == POWER_SUPPLY_HEALTH_COOL &&
+		!chip->batt_cool) {
+		/* turn up the soft cold threshold */
+		chip->batt_cool = true;
+		set_prop_jeita_temp(chip, FG_MEM_SOFT_COLD,
+			soft_cold + chip->cool_hysteresis);
+		if (fg_debug_mask & FG_STATUS)
+			pr_err("set [soft] cold threshold: old cool=%d, new cool=%d\n",
+				soft_cold, soft_cold + chip->cool_hysteresis);
+	} else if (chip->health != POWER_SUPPLY_HEALTH_WARM &&
+		chip->batt_warm) {
+		/* restore the soft hot threshold */
+		set_prop_jeita_temp(chip, FG_MEM_SOFT_HOT,
+			soft_hot + chip->warm_hysteresis);
+		chip->batt_warm = !chip->batt_warm;
+		if (fg_debug_mask & FG_STATUS)
+			pr_err("restore [soft] hot threshold: old warm=%d, new warm=%d\n",
+				soft_hot,
+				soft_hot + chip->warm_hysteresis);
+	} else if (chip->health != POWER_SUPPLY_HEALTH_COOL &&
+		chip->batt_cool) {
+		/* restore the soft cold threshold */
+		set_prop_jeita_temp(chip, FG_MEM_SOFT_COLD,
+			soft_cold - chip->cool_hysteresis);
+		chip->batt_cool = !chip->batt_cool;
+		if (fg_debug_mask & FG_STATUS)
+			pr_err("restore [soft] cold threshold: old cool=%d, new cool=%d\n",
+				soft_cold,
+				soft_cold - chip->cool_hysteresis);
+	}
+}
+#endif
+
 /*
  * Check for change in the status of input or OTG and schedule
  * IADC gain compensation work.
@@ -4295,6 +4408,47 @@ static int fg_init_batt_temp_state(struct fg_chip *chip)
 
 	return rc;
 }
+
+#if defined(CONFIG_TCT_COMMON)
+#define BATT_INFO_STS_WARM_COOL(base)	(base + 0x10)
+#define JEITA_SOFT_HOT_RT_STS	BIT(1)
+#define JEITA_SOFT_COLD_RT_STS	BIT(0)
+static int fg_init_batt_temp_state_warmcool(struct fg_chip *chip)
+{
+	int rc = 0;
+	u8 batt_info_sts=0;
+	int soft_hot = 0, soft_cold = 0;
+
+	rc = fg_read(chip, &batt_info_sts,
+		BATT_INFO_STS_WARM_COOL(chip->batt_base), 1);
+	if (rc) {
+		pr_err("failed to read batt info sts, rc=%d\n", rc);
+		return rc;
+	}
+	soft_hot = get_prop_jeita_temp(chip, FG_MEM_SOFT_HOT);
+	soft_cold = get_prop_jeita_temp(chip, FG_MEM_SOFT_COLD);
+	chip->batt_warm =
+		(batt_info_sts & JEITA_SOFT_HOT_RT_STS) ? true : false;
+	chip->batt_cool =
+		(batt_info_sts & JEITA_SOFT_COLD_RT_STS) ? true : false;
+	if (chip->batt_warm || chip->batt_cool) {
+		if (chip->batt_warm) {
+			if (fg_debug_mask & FG_STATUS)
+				pr_err(" init batt temp: warm \n");
+			chip->health = POWER_SUPPLY_HEALTH_WARM;
+			set_prop_jeita_temp(chip, FG_MEM_SOFT_HOT,
+				soft_hot - chip->warm_hysteresis);
+		} else {
+			if (fg_debug_mask & FG_STATUS)
+				pr_err(" init batt temp: cool \n");
+			chip->health = POWER_SUPPLY_HEALTH_COOL;
+			set_prop_jeita_temp(chip, FG_MEM_SOFT_COLD,
+				soft_cold + chip->cool_hysteresis);
+		}
+	}
+	return rc;
+}
+#endif
 
 static int fg_restore_cc_soc(struct fg_chip *chip)
 {
@@ -4556,6 +4710,12 @@ static enum power_supply_property fg_power_props[] = {
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_COOL_TEMP,
 	POWER_SUPPLY_PROP_WARM_TEMP,
+
+	// Add-begin by ning.wei
+	POWER_SUPPLY_PROP_COLD_TEMP,
+	POWER_SUPPLY_PROP_OVERHEAT_TEMP,
+	// Add-end by ning.wei
+
 	POWER_SUPPLY_PROP_RESISTANCE,
 	POWER_SUPPLY_PROP_RESISTANCE_ID,
 	POWER_SUPPLY_PROP_BATTERY_TYPE,
@@ -4618,6 +4778,16 @@ static int fg_power_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_WARM_TEMP:
 		val->intval = get_prop_jeita_temp(chip, FG_MEM_SOFT_HOT);
 		break;
+
+	// Add-begin by ning.wei
+	case POWER_SUPPLY_PROP_COLD_TEMP:
+		val->intval = get_prop_jeita_temp(chip, FG_MEM_HARD_COLD);
+		break;
+	case POWER_SUPPLY_PROP_OVERHEAT_TEMP:
+		val->intval = get_prop_jeita_temp(chip, FG_MEM_HARD_HOT);
+		break;
+        // Add-end by ning.wei
+
 	case POWER_SUPPLY_PROP_RESISTANCE:
 		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_ESR);
 		break;
@@ -4779,6 +4949,14 @@ static int fg_power_set_property(struct power_supply *psy,
 
 		if (chip->jeita_hysteresis_support)
 			fg_hysteresis_config(chip);
+
+#if defined(CONFIG_TCT_COMMON)
+		if (chip->jeita_hysteresis_support_warmcool)
+			fg_hysteresis_config_warmcool(chip);
+
+		if (chip->power_supply_registered)
+			power_supply_changed(&chip->bms_psy);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_DONE:
 		chip->charge_done = val->intval;
@@ -4828,6 +5006,9 @@ static int fg_property_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CYCLE_COUNT_ID:
 	case POWER_SUPPLY_PROP_BATTERY_INFO:
 	case POWER_SUPPLY_PROP_BATTERY_INFO_ID:
+#if defined(CONFIG_TCT_COMMON)
+	case POWER_SUPPLY_PROP_UPDATE_NOW:
+#endif
 		return 1;
 	default:
 		break;
@@ -6060,7 +6241,11 @@ static void discharge_gain_work(struct work_struct *work)
 #define FIRST_EST_DONE_BIT		BIT(5)
 #define MAX_TRIES_FIRST_EST		3
 #define FIRST_EST_WAIT_MS		2000
+#if defined(CONFIG_TCT_COMMON)
+#define PROFILE_LOAD_TIMEOUT_MS		7000
+#else
 #define PROFILE_LOAD_TIMEOUT_MS		5000
+#endif
 static int fg_do_restart(struct fg_chip *chip, bool write_profile)
 {
 	int rc, ibat_ua;
@@ -6581,6 +6766,22 @@ done:
 	chip->battery_missing = is_battery_missing(chip);
 	update_chg_iterm(chip);
 	update_cc_cv_setpoint(chip);
+
+#if defined(CONFIG_TCT_COMMON)
+	{
+		#define SCOPE_LIMIT_COEFF (5LL)
+		u8 buf[2];
+		half_float_to_buffer(SCOPE_LIMIT_COEFF*MICRO_UNIT, buf);
+		rc = fg_mem_write(chip, buf,
+				SLOPE_LIMITER_COEFF_REG, 2,
+				SLOPE_LIMITER_COEFF_OFFSET, 0);
+		if (rc) {
+			pr_err("Couldn't write to slope_limiter_coeff_reg, rc=%d\n",
+				rc);
+		}
+	}
+#endif
+
 	rc = populate_system_data(chip);
 	if (rc) {
 		pr_err("failed to read ocv properties=%d\n", rc);
@@ -7049,6 +7250,38 @@ static int fg_of_init(struct fg_chip *chip)
 		}
 	}
 
+#if defined(CONFIG_TCT_COMMON)
+	if (of_find_property(node, "qcom,cool-warm-jeita-hysteresis", NULL)) {
+		int hard_hot = 0, soft_hot = 0, hard_cold = 0, soft_cold = 0;
+		rc = of_property_read_u32_array(node,
+			"qcom,cool-warm-jeita-hysteresis", temp, 2);
+		if (rc) {
+			pr_err("Error reading cold-hot-jeita-hysteresis rc=%d\n",
+				rc);
+			return rc;
+		}
+		chip->jeita_hysteresis_support_warmcool = true;
+		chip->cool_hysteresis = temp[0];
+		chip->warm_hysteresis = temp[1];
+		hard_hot = settings[FG_MEM_HARD_HOT].value;
+		soft_hot = settings[FG_MEM_SOFT_HOT].value;
+		hard_cold = settings[FG_MEM_HARD_COLD].value;
+		soft_cold = settings[FG_MEM_SOFT_COLD].value;
+		if (((soft_hot - chip->warm_hysteresis) < soft_cold) ||
+			((soft_cold + chip->cool_hysteresis) > soft_hot) ||
+			((soft_hot - chip->warm_hysteresis) > hard_hot) ||
+			((soft_cold + chip->cool_hysteresis) < hard_cold)){
+			chip->jeita_hysteresis_support_warmcool = false;
+			pr_err("invalid hysteresis: warm_hysterresis = %d cool_hysteresis = %d\n",
+				chip->warm_hysteresis, chip->cool_hysteresis);
+		} else {
+			if (fg_debug_mask & FG_STATUS)
+				pr_err("valid w_hysteresis = %d, c_hysteresis = %d\n",
+					chip->warm_hysteresis, chip->cool_hysteresis);
+		}
+	}
+#endif
+
 	OF_READ_SETTING(FG_MEM_BCL_LM_THRESHOLD, "bcl-lm-threshold-ma",
 		rc, 1);
 	OF_READ_SETTING(FG_MEM_BCL_MH_THRESHOLD, "bcl-mh-threshold-ma",
@@ -7465,6 +7698,7 @@ static int fg_init_irqs(struct fg_chip *chip)
 static void fg_cancel_all_works(struct fg_chip *chip)
 {
 	cancel_delayed_work_sync(&chip->check_sanity_work);
+	cancel_delayed_work_sync(&chip->check_battid_work); //added by wei-hu
 	cancel_delayed_work_sync(&chip->update_sram_data);
 	cancel_delayed_work_sync(&chip->update_temp_work);
 	cancel_delayed_work_sync(&chip->update_jeita_setting);
@@ -8044,7 +8278,11 @@ static int fg_common_hw_init(struct fg_chip *chip)
 	}
 
 	rc = fg_mem_masked_write(chip, settings[FG_MEM_DELTA_SOC].address, 0xFF,
+#if defined(CONFIG_TCT_COMMON)
+			1,
+#else
 			soc_to_setpoint(settings[FG_MEM_DELTA_SOC].value),
+#endif
 			settings[FG_MEM_DELTA_SOC].offset);
 	if (rc) {
 		pr_err("failed to write delta soc rc=%d\n", rc);
@@ -8665,6 +8903,10 @@ static void delayed_init_work(struct work_struct *work)
 	if (chip->ima_supported && fg_reset_on_lockup)
 		schedule_delayed_work(&chip->check_sanity_work,
 			msecs_to_jiffies(1000));
+	
+	//added by wei-hu,start
+		schedule_delayed_work(&chip->check_battid_work,msecs_to_jiffies(500));
+	//added by wei-hu,end
 
 	if (chip->wa_flag & IADC_GAIN_COMP_WA) {
 		rc = fg_init_iadc_config(chip);
@@ -8750,6 +8992,7 @@ static int fg_probe(struct spmi_device *spmi)
 	INIT_DELAYED_WORK(&chip->check_empty_work, check_empty_work);
 	INIT_DELAYED_WORK(&chip->batt_profile_init, batt_profile_init);
 	INIT_DELAYED_WORK(&chip->check_sanity_work, check_sanity_work);
+	INIT_DELAYED_WORK(&chip->check_battid_work, check_battid_work); //added by wei-hu
 	INIT_WORK(&chip->ima_error_recovery_work, ima_error_recovery_work);
 	INIT_WORK(&chip->rslow_comp_work, rslow_comp_work);
 	INIT_WORK(&chip->fg_cap_learning_work, fg_cap_learning_work);
@@ -8858,6 +9101,17 @@ static int fg_probe(struct spmi_device *spmi)
 			goto of_init_fail;
 		}
 	}
+
+
+#if defined(CONFIG_TCT_COMMON)
+	if (chip->jeita_hysteresis_support_warmcool) {
+		rc = fg_init_batt_temp_state_warmcool(chip);
+		if (rc) {
+			pr_err("failed to get battery warm/cool status rc%d\n", rc);
+			goto of_init_fail;
+		}
+	}
+#endif
 
 	/* check if the first estimate is already finished at this time */
 	if (is_first_est_done(chip))

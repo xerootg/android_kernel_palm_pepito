@@ -25,6 +25,8 @@
 #include "dsi-panel-lead-fl10802-fwvga-video.dtsi"
 #include "dsi-panel-icn9706-720-1440p-video.dtsi"
 
+#include "dsi-panel-ft8613-720p-video.dtsi"// MODIFIED by YJW, 2017-10-10, bug-5392294
+#include "dsi-panel-ft8613-720p-video-1280p.dtsi" // MODIFIED by junwen.ye, 2017-11-21,BUG-5628800
 &soc {
 	dsi_panel_pwr_supply: dsi_panel_pwr_supply {
 		#address-cells = <1>;
@@ -47,6 +49,26 @@
 			qcom,supply-enable-load = <100000>;
 			qcom,supply-disable-load = <100>;
 		};
+/* add begin by YJW ,2017/10/10,BUG-5392294 */
+		qcom,panel-supply-entry@2 {
+			reg = <2>;
+			qcom,supply-name = "lab";
+			qcom,supply-min-voltage = <4600000>;
+			qcom,supply-max-voltage = <6000000>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+		};
+
+		qcom,panel-supply-entry@3 {
+			reg = <3>;
+			qcom,supply-name = "ibb";
+			qcom,supply-min-voltage = <4600000>;
+			qcom,supply-max-voltage = <6000000>;
+			qcom,supply-enable-load = <100000>;
+			qcom,supply-disable-load = <100>;
+			qcom,supply-post-on-sleep = <20>;
+		};
+/* add end by YJW ,2017/10/10,BUG-5392294 */
 
 	};
 };

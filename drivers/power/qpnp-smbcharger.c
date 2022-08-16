@@ -284,7 +284,16 @@ struct smbchg_chip {
 	struct votable			*hw_aicl_rerun_disable_votable;
 	struct votable			*hw_aicl_rerun_enable_indirect_votable;
 	struct votable			*aicl_deglitch_short_votable;
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+	struct votable			*vfloat_votable;
+#endif
+
+#if defined(CONFIG_TCT_COMMON)
+	struct votable			*hvdcp_disable_votable;
+#else
 	struct votable			*hvdcp_enable_votable;
+#endif
 };
 
 enum qpnp_schg {
@@ -340,6 +349,18 @@ enum wake_reason {
 #define ESR_PULSE_FCC_VOTER	"ESR_PULSE_FCC_VOTER"
 #define BATT_TYPE_FCC_VOTER	"BATT_TYPE_FCC_VOTER"
 #define RESTRICTED_CHG_FCC_VOTER	"RESTRICTED_CHG_FCC_VOTER"
+
+#if defined(CONFIG_TCT_COMMON)
+#define THERMAL_FCC_VOTER "THERMAL_FCC_VOTER"
+#endif
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+#define JIETA_FCC_VOTER "JIETA_FCC_VOTER"
+
+/* vfloat voters */
+#define BATT_VFLOAT_VOTER "BATT_VFLOAT_VOTER"
+#define JIETA_VFLOAT_VOTER "JIETA_VFLOAT_VOTER"
+#endif
 
 /* ICL VOTERS */
 #define PSY_ICL_VOTER		"PSY_ICL_VOTER"
@@ -417,12 +438,16 @@ enum wake_reason {
 #define	HVDCP_OTG_VOTER			"HVDCP_OTG_VOTER"
 #define	HVDCP_PULSING_VOTER		"HVDCP_PULSING_VOTER"
 
-static int smbchg_debug_mask;
+static int smbchg_debug_mask ;//= PR_INTERRUPT | PR_STATUS | PR_PM | PR_MISC; // modify by ning.wei for log print
 module_param_named(
 	debug_mask, smbchg_debug_mask, int, S_IRUSR | S_IWUSR
 );
 
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+static int smbchg_parallel_en = 0;
+#else
 static int smbchg_parallel_en = 1;
+#endif
 module_param_named(
 	parallel_en, smbchg_parallel_en, int, S_IRUSR | S_IWUSR
 );
@@ -439,19 +464,33 @@ module_param_named(
 	int, S_IRUSR | S_IWUSR
 );
 
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+static int smbchg_default_hvdcp_icl_ma = 900;
+#else
 static int smbchg_default_hvdcp_icl_ma = 1800;
+#endif
 module_param_named(
 	default_hvdcp_icl_ma, smbchg_default_hvdcp_icl_ma,
 	int, S_IRUSR | S_IWUSR
 );
 
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+static int smbchg_default_hvdcp3_icl_ma = 900;
+#else
 static int smbchg_default_hvdcp3_icl_ma = 3000;
+#endif
 module_param_named(
 	default_hvdcp3_icl_ma, smbchg_default_hvdcp3_icl_ma,
 	int, S_IRUSR | S_IWUSR
 );
 
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+static int smbchg_default_dcp_icl_ma = 900;
+#else
 static int smbchg_default_dcp_icl_ma = 1800;
+#endif
+
 module_param_named(
 	default_dcp_icl_ma, smbchg_default_dcp_icl_ma,
 	int, S_IRUSR | S_IWUSR
@@ -476,6 +515,25 @@ module_param_named(
 	int, S_IRUSR | S_IWUSR
 );
 
+#if defined(CONFIG_TCT_COMMON)
+#define pr_smb(reason, fmt, ...)				\
+	do {							\
+		if (smbchg_debug_mask & (reason))		\
+			pr_err(fmt, ##__VA_ARGS__);		\
+		else						\
+			pr_debug(fmt, ##__VA_ARGS__);		\
+	} while (0)
+
+#define pr_smb_rt(reason, fmt, ...)					\
+	do {								\
+		if (smbchg_debug_mask & (reason))			\
+			pr_err_ratelimited(fmt, ##__VA_ARGS__);	\
+		else							\
+			pr_debug_ratelimited(fmt, ##__VA_ARGS__);	\
+	} while (0)
+
+#else
+
 #define pr_smb(reason, fmt, ...)				\
 	do {							\
 		if (smbchg_debug_mask & (reason))		\
@@ -491,6 +549,7 @@ module_param_named(
 		else							\
 			pr_debug_ratelimited(fmt, ##__VA_ARGS__);	\
 	} while (0)
+#endif
 
 static int smbchg_read(struct smbchg_chip *chip, u8 *val,
 			u16 addr, int count)
@@ -1573,7 +1632,11 @@ static void smbchg_usb_update_online_work(struct work_struct *work)
 						USER_EN_VOTER);
 	int online;
 
+#if defined(CONFIG_TCT_COMMON)
+	online = user_enabled && chip->usb_present ;
+#else
 	online = user_enabled && chip->usb_present && !chip->very_weak_charger;
+#endif
 
 	mutex_lock(&chip->usb_set_online_lock);
 	if (chip->usb_online != online) {
@@ -2670,6 +2733,26 @@ static int dc_suspend_vote_cb(struct votable *votable,
 }
 
 #define HVDCP_EN_BIT			BIT(3)
+#if defined(CONFIG_TCT_COMMON)
+static int smbchg_hvdcp_disable_cb(struct votable *votable,
+				void *data,
+				int disable,
+				const char *client)
+{
+	int rc = 0;
+	struct smbchg_chip *chip = data;
+
+	pr_smb(PR_STATUS, "disable %d \n", disable);
+	rc = smbchg_sec_masked_write(chip,
+				chip->usb_chgpth_base + CHGPTH_CFG,
+				HVDCP_EN_BIT, disable ? 0 : HVDCP_EN_BIT);
+	if (rc < 0)
+		dev_err(chip->dev, "Couldn't %s HVDCP rc=%d\n",
+				disable ? "disable" : "enable", rc);
+
+	return rc;
+}
+#else
 static int smbchg_hvdcp_enable_cb(struct votable *votable,
 				void *data,
 				int enable,
@@ -2688,6 +2771,7 @@ static int smbchg_hvdcp_enable_cb(struct votable *votable,
 
 	return rc;
 }
+#endif
 
 static int set_fastchg_current_vote_cb(struct votable *votable,
 						void *data,
@@ -3068,6 +3152,10 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 	if (lvl_sel == chip->therm_lvl_sel)
 		return 0;
 
+#if defined(CONFIG_TCT_COMMON)
+	pr_err("temp_level: %d -> %d \n", chip->therm_lvl_sel, lvl_sel);
+#endif
+
 	mutex_lock(&chip->therm_lvl_lock);
 	prev_therm_lvl = chip->therm_lvl_sel;
 	chip->therm_lvl_sel = lvl_sel;
@@ -3092,10 +3180,17 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 	}
 
 	if (chip->therm_lvl_sel == 0) {
+#if defined(CONFIG_TCT_COMMON)
+		rc = vote(chip->fcc_votable, THERMAL_FCC_VOTER, false, 0);
+		if (rc < 0)
+			pr_err("Couldn't disable USB thermal FCC vote rc=%d\n",
+				rc);
+#else
 		rc = vote(chip->usb_icl_votable, THERMAL_ICL_VOTER, false, 0);
 		if (rc < 0)
 			pr_err("Couldn't disable USB thermal ICL vote rc=%d\n",
 				rc);
+#endif
 
 		rc = vote(chip->dc_icl_votable, THERMAL_ICL_VOTER, false, 0);
 		if (rc < 0)
@@ -3104,10 +3199,18 @@ static int smbchg_system_temp_level_set(struct smbchg_chip *chip,
 	} else {
 		thermal_icl_ma =
 			(int)chip->thermal_mitigation[chip->therm_lvl_sel];
+
+#if defined(CONFIG_TCT_COMMON)
+		rc = vote(chip->fcc_votable, THERMAL_FCC_VOTER, true,
+					thermal_icl_ma);
+		if (rc < 0)
+			pr_err("Couldn't vote for USB thermal FCC rc=%d\n", rc);
+#else
 		rc = vote(chip->usb_icl_votable, THERMAL_ICL_VOTER, true,
 					thermal_icl_ma);
 		if (rc < 0)
 			pr_err("Couldn't vote for USB thermal ICL rc=%d\n", rc);
+#endif
 
 		rc = vote(chip->dc_icl_votable, THERMAL_ICL_VOTER, true,
 					thermal_icl_ma);
@@ -3357,6 +3460,17 @@ static int smbchg_float_voltage_get(struct smbchg_chip *chip)
 {
 	return chip->vfloat_mv;
 }
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+static int set_vfloat_vote_cb(struct votable *votable,
+						void *data,
+						int vfloat_mv,
+						const char *client)
+{
+	struct smbchg_chip *chip = data;
+	return smbchg_float_voltage_set(chip, vfloat_mv);
+}
+#endif
 
 #define SFT_CFG				0xFD
 #define SFT_EN_MASK			SMB_MASK(5, 4)
@@ -3847,8 +3961,13 @@ static int smbchg_config_chg_battery_type(struct smbchg_chip *chip)
 			pr_info("Vfloat changed from %dmV to %dmV for battery-type %s\n",
 				chip->vfloat_mv, (max_voltage_uv / 1000),
 				chip->battery_type);
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+			rc = vote(chip->vfloat_votable, BATT_VFLOAT_VOTER,
+						true, (max_voltage_uv / 1000));
+#else
 			rc = smbchg_float_voltage_set(chip,
 						(max_voltage_uv / 1000));
+#endif
 			if (rc < 0) {
 				dev_err(chip->dev,
 				"Couldn't set float voltage rc = %d\n", rc);
@@ -3938,6 +4057,49 @@ static void check_battery_type(struct smbchg_chip *chip)
 		}
 	}
 }
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+#define BATT_VOLTAGE_INVALID (2000000)
+#define BATT_UPPER_THRESHOLD (4200000)
+#define BATT_MIDDLE_THRESHOLD (4100000)
+#define BATT_LOWER_THRESHOLD (4050000)
+#define BATT_SOC_THRESHOLD (60)
+
+#define JETTA_POINT_1  (100+20)
+#define JETTA_POINT_2  (200+20)
+#define JETTA_POINT_3  (450+10)
+#define JETTA_POINT_4  (550+10)
+
+#define FCC_LIMIT_VALUE_400	(400)
+#define FCC_LIMIT_VALUE_550	(550)
+#define VFLOAT_LIMIT_VALUE		(4100)
+static void smbchg_check_batt_jetta_settings(struct smbchg_chip *chip)
+{
+	int batV=0, batt_temp=0, soc=0;
+
+	soc = get_prop_batt_capacity(chip);
+	batV = get_prop_batt_voltage_now(chip);
+	batt_temp = get_prop_batt_temp(chip);
+
+	pr_smb(PR_STATUS, " %d(%d),%d \n", batV, soc, batt_temp);
+	if((batV<=BATT_VOLTAGE_INVALID)
+		|| chip->batt_cold || chip->batt_hot)
+		return;
+
+	if(batt_temp<JETTA_POINT_1){ /* battery temp: (0, 12) degree */
+		vote(chip->vfloat_votable, JIETA_VFLOAT_VOTER, false, 0);
+		vote(chip->fcc_votable, JIETA_FCC_VOTER, true, FCC_LIMIT_VALUE_400);
+	} else if(batt_temp<JETTA_POINT_3 || !chip->batt_warm) { /* battery temp:  (12, 46) degree */
+		// mod by ning.wei@tcl.com for change 0.7c to 1C charging
+		vote(chip->vfloat_votable, JIETA_VFLOAT_VOTER, false, 0);
+		vote(chip->fcc_votable, JIETA_FCC_VOTER, false, 0);
+
+	} else if(batt_temp<JETTA_POINT_4)	{ /* battery temp:  (46, 55) degree */
+		vote(chip->vfloat_votable, JIETA_VFLOAT_VOTER, true, VFLOAT_LIMIT_VALUE);
+		vote(chip->fcc_votable, JIETA_FCC_VOTER, true, FCC_LIMIT_VALUE_400);
+	}
+}
+#endif
 
 static int smbchg_otg_regulator_enable(struct regulator_dev *rdev)
 {
@@ -4047,7 +4209,11 @@ static int smbchg_external_otg_regulator_enable(struct regulator_dev *rdev)
 	 * allowance to 9V, so that the audio boost operating in reverse never
 	 * gets detected as a valid input
 	 */
+#if defined(CONFIG_TCT_COMMON)
+	rc = vote(chip->hvdcp_disable_votable, HVDCP_OTG_VOTER, true, 0);
+#else
 	rc = vote(chip->hvdcp_enable_votable, HVDCP_OTG_VOTER, true, 0);
+#endif
 	if (rc < 0) {
 		dev_err(chip->dev, "Couldn't disable HVDCP rc=%d\n", rc);
 		return rc;
@@ -4081,7 +4247,11 @@ static int smbchg_external_otg_regulator_disable(struct regulator_dev *rdev)
 	 * value in order to allow normal USBs to be recognized as a valid
 	 * input.
 	 */
+#if defined(CONFIG_TCT_COMMON)
+	rc = vote(chip->hvdcp_disable_votable, HVDCP_OTG_VOTER, false, 0);
+#else
 	rc = vote(chip->hvdcp_enable_votable, HVDCP_OTG_VOTER, false, 1);
+#endif
 	if (rc < 0) {
 		dev_err(chip->dev, "Couldn't enable HVDCP rc=%d\n", rc);
 		return rc;
@@ -4837,7 +5007,11 @@ static void restore_from_hvdcp_detection(struct smbchg_chip *chip)
 		pr_err("Couldn't configure HVDCP 9V rc=%d\n", rc);
 
 	/* enable HVDCP */
+#if defined(CONFIG_TCT_COMMON)
+	rc = vote(chip->hvdcp_disable_votable, HVDCP_PULSING_VOTER, false, 0);
+#else
 	rc = vote(chip->hvdcp_enable_votable, HVDCP_PULSING_VOTER, false, 1);
+#endif
 	if (rc < 0)
 		pr_err("Couldn't enable HVDCP rc=%d\n", rc);
 
@@ -4931,6 +5105,12 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 		power_supply_set_present(chip->usb_psy, chip->usb_present);
 	}
 	set_usb_psy_dp_dm(chip, POWER_SUPPLY_DP_DM_DPR_DMR);
+
+#if defined(CONFIG_TCT_COMMON)
+	set_property_on_fg(chip, POWER_SUPPLY_PROP_STATUS,
+			get_prop_batt_status(chip));
+#endif
+
 	schedule_work(&chip->usb_set_online_work);
 	pr_smb(PR_MISC, "setting usb psy health UNKNOWN\n");
 	rc = power_supply_set_health_state(chip->usb_psy,
@@ -4959,6 +5139,10 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 	vote(chip->usb_icl_votable, SW_AICL_ICL_VOTER, false, 0);
 	vote(chip->aicl_deglitch_short_votable,
 		HVDCP_SHORT_DEGLITCH_VOTER, false, 0);
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+	vote(chip->fcc_votable, JIETA_FCC_VOTER, false, 0);
+	vote(chip->vfloat_votable, JIETA_VFLOAT_VOTER, false, 0);
+#endif
 	if (!chip->hvdcp_not_supported)
 		restore_from_hvdcp_detection(chip);
 }
@@ -5062,6 +5246,13 @@ void update_usb_status(struct smbchg_chip *chip, bool usb_present, bool force)
 	set_property_on_fg(chip, POWER_SUPPLY_PROP_STATUS,
 			get_prop_batt_status(chip));
 unlock:
+
+#if defined(CONFIG_TCT_COMMON)
+	/* update FG */
+	set_property_on_fg(chip, POWER_SUPPLY_PROP_STATUS,
+			get_prop_batt_status(chip));
+#endif
+
 	mutex_unlock(&chip->usb_status_lock);
 }
 
@@ -5404,7 +5595,11 @@ static int smbchg_prepare_for_pulsing(struct smbchg_chip *chip)
 
 	/* disable HVDCP */
 	pr_smb(PR_MISC, "Disable HVDCP\n");
+#if defined(CONFIG_TCT_COMMON)
+	rc = vote(chip->hvdcp_disable_votable, HVDCP_PULSING_VOTER, true, 0);
+#else
 	rc = vote(chip->hvdcp_enable_votable, HVDCP_PULSING_VOTER, true, 0);
+#endif
 	if (rc < 0) {
 		pr_err("Couldn't disable HVDCP rc=%d\n", rc);
 		goto out;
@@ -5509,7 +5704,11 @@ static int smbchg_unprepare_for_pulsing(struct smbchg_chip *chip)
 
 	/* enable HVDCP */
 	pr_smb(PR_MISC, "Enable HVDCP\n");
+#if defined(CONFIG_TCT_COMMON)
+	rc = vote(chip->hvdcp_disable_votable, HVDCP_PULSING_VOTER, false, 0);
+#else
 	rc = vote(chip->hvdcp_enable_votable, HVDCP_PULSING_VOTER, false, 1);
+#endif
 	if (rc < 0) {
 		pr_err("Couldn't enable HVDCP rc=%d\n", rc);
 		return rc;
@@ -5843,6 +6042,10 @@ static int smbchg_hvdcp3_confirmed(struct smbchg_chip *chip)
 {
 	int rc = 0;
 
+#if defined(CONFIG_TCT_COMMON)
+	smbchg_change_usb_supply_type(chip, POWER_SUPPLY_TYPE_USB_HVDCP_3);
+#endif
+
 	/*
 	 * reset the enabled once flag for parallel charging because this is
 	 * effectively a new insertion.
@@ -5854,7 +6057,9 @@ static int smbchg_hvdcp3_confirmed(struct smbchg_chip *chip)
 	if (rc < 0)
 		pr_err("Couldn't retract HVDCP ICL vote rc=%d\n", rc);
 
+#if !defined(CONFIG_TCT_COMMON)
 	smbchg_change_usb_supply_type(chip, POWER_SUPPLY_TYPE_USB_HVDCP_3);
+#endif
 
 	if (chip->parallel.use_parallel_aicl) {
 		complete_all(&chip->hvdcp_det_done);
@@ -6080,6 +6285,12 @@ static void smbchg_external_power_changed(struct power_supply *psy)
 
 	read_usb_type(chip, &usb_type_name, &usb_supply_type);
 
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+	if(chip->battery_type && chip->usb_present)
+		smbchg_check_batt_jetta_settings(chip);
+#endif
+
+#if !defined(CONFIG_TCT_COMMON)
 	if (!rc && usb_supply_type == POWER_SUPPLY_TYPE_USB &&
 			prop.intval != POWER_SUPPLY_TYPE_USB &&
 			is_usb_present(chip)) {
@@ -6116,12 +6327,18 @@ static void smbchg_external_power_changed(struct power_supply *psy)
 			schedule_delayed_work(&chip->hvdcp_det_work,
 				msecs_to_jiffies(HVDCP_NOTIFY_MS));
 	}
+#endif
 
 	if (usb_supply_type != POWER_SUPPLY_TYPE_USB)
 		goto  skip_current_for_non_sdp;
 
 	pr_smb(PR_MISC, "usb type = %s current_limit = %d\n",
 			usb_type_name, current_limit);
+
+#if defined(CONFIG_TCT_COMMON)
+	if(!current_limit)
+		current_limit = 500;
+#endif
 
 	rc = vote(chip->usb_icl_votable, PSY_ICL_VOTER, true,
 				current_limit);
@@ -6133,6 +6350,17 @@ skip_current_for_non_sdp:
 
 	power_supply_changed(&chip->batt_psy);
 }
+
+// Add-begin by ning.wei
+#include <soc/qcom/smem.h>
+static int get_prop_power_on_voltage(struct smbchg_chip *chip) // get power on voltage
+{
+
+	static uint32_t power_on_voltage = 3500;
+
+	return (int)power_on_voltage;
+}
+// Add-end by ning.wei
 
 static enum power_supply_property smbchg_battery_properties[] = {
 	POWER_SUPPLY_PROP_STATUS,
@@ -6167,6 +6395,11 @@ static enum power_supply_property smbchg_battery_properties[] = {
 	POWER_SUPPLY_PROP_RESTRICTED_CHARGING,
 	POWER_SUPPLY_PROP_ALLOW_HVDCP3,
 	POWER_SUPPLY_PROP_MAX_PULSE_ALLOWED,
+
+	// Add-begin by ning.wei
+	POWER_SUPPLY_PROP_POWER_ON_VOLTAGE,
+	POWER_SUPPLY_PROP_BATT_ID,
+	// Add-end by ning.wei
 };
 
 static int smbchg_battery_set_property(struct power_supply *psy,
@@ -6201,7 +6434,12 @@ static int smbchg_battery_set_property(struct power_supply *psy,
 		rc = smbchg_set_fastchg_current_user(chip, val->intval / 1000);
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+		rc = vote(chip->vfloat_votable, BATT_VFLOAT_VOTER,
+						true, val->intval);
+#else
 		rc = smbchg_float_voltage_set(chip, val->intval);
+#endif
 		break;
 	case POWER_SUPPLY_PROP_SAFETY_TIMER_ENABLE:
 		rc = smbchg_safety_timer_enable(chip, val->intval);
@@ -6245,10 +6483,12 @@ static int smbchg_battery_set_property(struct power_supply *psy,
 			update_typec_otg_status(chip, val->intval, false);
 		break;
 	case POWER_SUPPLY_PROP_ALLOW_HVDCP3:
+#if !defined(CONFIG_TCT_MSM8940_PEPITO)
 		if (chip->allow_hvdcp3_detection != val->intval) {
 			chip->allow_hvdcp3_detection = !!val->intval;
 			power_supply_changed(&chip->batt_psy);
 		}
+#endif
 		break;
 	default:
 		return -EINVAL;
@@ -6351,6 +6591,9 @@ static int smbchg_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		val->intval = get_prop_batt_voltage_now(chip);
 		break;
+	// Add-begin by ning.wei
+	case POWER_SUPPLY_PROP_BATT_ID:
+	// Add-end by ning.wei
 	case POWER_SUPPLY_PROP_RESISTANCE_ID:
 		val->intval = get_prop_batt_resistance_id(chip);
 		break;
@@ -6393,6 +6636,13 @@ static int smbchg_battery_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_MAX_PULSE_ALLOWED:
 		val->intval = chip->max_pulse_allowed;
 		break;
+
+	// Add-begin by ning.wei
+	case POWER_SUPPLY_PROP_POWER_ON_VOLTAGE: // for get power on voltage
+		val->intval = get_prop_power_on_voltage(chip);
+		break;
+	// Add-end by ning.wei
+
 	default:
 		return -EINVAL;
 	}
@@ -6804,7 +7054,11 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 		goto out;
 	}
 
+#if defined(CONFIG_TCT_COMMON)
+	pr_smb_rt(PR_STATUS,
+#else
 	pr_smb(PR_STATUS,
+#endif
 		"%s chip->usb_present = %d rt_sts = 0x%02x hvdcp_3_det_ignore_uv = %d aicl = %d\n",
 		chip->hvdcp_3_det_ignore_uv ? "Ignoring":"",
 		chip->usb_present, reg, chip->hvdcp_3_det_ignore_uv,
@@ -6816,7 +7070,11 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 	 */
 	if (!(reg & USBIN_UV_BIT) && !(reg & USBIN_SRC_DET_BIT) &&
 		!chip->hvdcp_3_det_ignore_uv) {
+#if defined(CONFIG_TCT_COMMON)
+		pr_smb_rt(PR_MISC, "setting usb psy dp=f dm=f\n");
+#else
 		pr_smb(PR_MISC, "setting usb psy dp=f dm=f\n");
+#endif
 		power_supply_set_dp_dm(chip->usb_psy,
 				POWER_SUPPLY_DP_DM_DPF_DMF);
 	}
@@ -6830,7 +7088,11 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 		goto out;
 
 	if ((reg & USBIN_UV_BIT) && (reg & USBIN_SRC_DET_BIT)) {
+#if defined(CONFIG_TCT_COMMON)
+		pr_smb_rt(PR_STATUS, "Very weak charger detected\n");
+#else
 		pr_smb(PR_STATUS, "Very weak charger detected\n");
+#endif
 		chip->very_weak_charger = true;
 		rc = smbchg_read(chip, &reg,
 				chip->usb_chgpth_base + ICL_STS_2_REG, 1);
@@ -6840,6 +7102,9 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 			goto out;
 		}
 		if ((reg & ICL_MODE_MASK) != ICL_MODE_HIGH_CURRENT) {
+#if defined(CONFIG_TCT_COMMON)
+			pr_smb_rt(PR_STATUS,"ignoring for Very weak charger \n");
+#else
 			/*
 			 * If AICL is not even enabled, this is either an
 			 * SDP or a grossly out of spec charger. Do not
@@ -6849,6 +7114,8 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 					WEAK_CHARGER_EN_VOTER, true, 0);
 			if (rc < 0)
 				pr_err("could not disable charger: %d", rc);
+#endif
+
 		} else if (aicl_level == chip->tables.usb_ilim_ma_table[0]) {
 			/*
 			 * we are in a situation where the adapter is not able
@@ -6861,7 +7128,11 @@ static irqreturn_t usbin_uv_handler(int irq, void *_chip)
 				pr_err("Couldn't disable hw aicl rerun rc=%d\n",
 						rc);
 		}
+#if defined(CONFIG_TCT_COMMON)
+		pr_smb_rt(PR_MISC, "setting usb psy health UNSPEC_FAILURE\n");
+#else
 		pr_smb(PR_MISC, "setting usb psy health UNSPEC_FAILURE\n");
+#endif
 		rc = power_supply_set_health_state(chip->usb_psy,
 				POWER_SUPPLY_HEALTH_UNSPEC_FAILURE);
 		if (rc)
@@ -7158,6 +7429,10 @@ static inline int get_bpd(const char *name)
 #define INPUT_MISSING_POLLER_EN_BIT	BIT(3)
 #define CHGR_CCMP_CFG			0xFA
 #define JEITA_TEMP_HARD_LIMIT_BIT	BIT(5)
+#if defined(CONFIG_TCT_COMMON)
+#define JEITA_FVCOMP_MASK	SMB_MASK(3, 2)
+#define JEITA_CCCOMP_MASK	SMB_MASK(1, 0)
+#endif
 #define HVDCP_ADAPTER_SEL_MASK		SMB_MASK(5, 4)
 #define HVDCP_ADAPTER_SEL_9V_BIT	BIT(4)
 #define HVDCP_AUTH_ALG_EN_BIT		BIT(6)
@@ -7233,19 +7508,29 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 
 	/* Setup 9V HVDCP */
 	if (chip->hvdcp_not_supported) {
+#if defined(CONFIG_TCT_COMMON)
+		rc = vote(chip->hvdcp_disable_votable, HVDCP_PMIC_VOTER,
+				true, 0);
+#else
 		rc = vote(chip->hvdcp_enable_votable, HVDCP_PMIC_VOTER,
 				true, 0);
+#endif
 		if (rc < 0) {
 			dev_err(chip->dev, "Couldn't disable HVDCP rc=%d\n",
 					rc);
 			return rc;
 		}
 	} else {
+#if defined(CONFIG_TCT_COMMON)
+		rc = vote(chip->hvdcp_disable_votable, HVDCP_PMIC_VOTER,
+				false, 0);
+#else
 		rc = vote(chip->hvdcp_enable_votable, HVDCP_PMIC_VOTER,
 				true, 1);
+#endif
 		if (rc < 0) {
 			dev_err(chip->dev,
-				"Couldn't disable HVDCP vote rc=%d\n", rc);
+				"Couldn't enable HVDCP vote rc=%d\n", rc);
 			return rc;
 		}
 		rc = smbchg_sec_masked_write(chip,
@@ -7359,7 +7644,12 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 
 	/* set the float voltage */
 	if (chip->vfloat_mv != -EINVAL) {
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+		rc = vote(chip->vfloat_votable, BATT_VFLOAT_VOTER,
+						true, chip->vfloat_mv);
+#else
 		rc = smbchg_float_voltage_set(chip, chip->vfloat_mv);
+#endif
 		if (rc < 0) {
 			dev_err(chip->dev,
 				"Couldn't set float voltage rc = %d\n", rc);
@@ -7380,6 +7670,19 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 		pr_smb(PR_STATUS, "set fastchg current comp to %d\n",
 			chip->fastchg_current_comp);
 	}
+#if defined(CONFIG_TCT_COMMON)
+	else {
+		rc = smbchg_sec_masked_write(chip,
+			chip->chgr_base + CHGR_CCMP_CFG,
+			JEITA_CCCOMP_MASK, 0);
+		if (rc < 0) {
+			dev_err(chip->dev,
+				"Couldn't set charge current compensation rc = %d\n",
+				rc);
+			return rc;
+		}
+	}
+#endif
 
 	/* set the float voltage compensation */
 	if (chip->float_voltage_comp != -EINVAL) {
@@ -7393,6 +7696,19 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 		pr_smb(PR_STATUS, "set float voltage comp to %d\n",
 			chip->float_voltage_comp);
 	}
+#if defined(CONFIG_TCT_COMMON)
+	else {
+		rc = smbchg_sec_masked_write(chip,
+			chip->chgr_base + CHGR_CCMP_CFG,
+			JEITA_FVCOMP_MASK, 0);
+		if (rc < 0) {
+			dev_err(chip->dev,
+				"Couldn't set float voltage compensation rc = %d\n",
+				rc);
+			return rc;
+		}
+	}
+#endif
 
 	/* set iterm */
 	if (chip->iterm_ma != -EINVAL) {
@@ -7440,8 +7756,16 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 		if (rc < 0)
 			dev_err(chip->dev, "Unable to read SFT_CFG rc = %d\n",
 				rc);
+#if defined(CONFIG_TCT_COMMON)
+		else if (!(reg & SFT_EN_MASK))
+		{
+			chip->safety_timer_en = true;
+			smbchg_safety_timer_enable(chip, false);
+		}
+#else
 		else if (!(reg & SFT_EN_MASK))
 			chip->safety_timer_en = true;
+#endif
 	}
 
 	/* configure jeita temperature hard limit */
@@ -7575,6 +7899,19 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 		return rc;
 	}
 
+/* MODIFIED-BEGIN by jin.wang, 2017-12-26,BUG-5818324*/
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+	/* If hvdcp no need, limit the chg voltage to 5V only */
+	rc = smbchg_sec_masked_write(chip,
+			chip->usb_chgpth_base + USBIN_CHGR_CFG,
+			ADAPTER_ALLOWANCE_MASK,
+			(chip->hvdcp_not_supported ? 0x04 : USBIN_ADAPTER_5V_UNREGULATED_9V));
+	if (rc < 0) {
+		dev_err(chip->dev, "Couldn't write usb allowance rc=%d\n", rc);
+	}
+#endif
+/* MODIFIED-END by jin.wang,BUG-5818324*/
+
 	rc = smbchg_read(chip, &chip->original_usbin_allowance,
 			chip->usb_chgpth_base + USBIN_CHGR_CFG, 1);
 	if (rc < 0)
@@ -7606,6 +7943,18 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 			return rc;
 		}
 	}
+#if defined(CONFIG_TCT_COMMON)
+	else {
+		/* vote to disable hw aicl */
+		rc = vote(chip->hw_aicl_rerun_enable_indirect_votable,
+			DEFAULT_CONFIG_HW_AICL_VOTER, false, 0);
+		if (rc < 0) {
+			pr_err("Couldn't vote disable hw aicl rerun rc=%d\n",
+				rc);
+			return rc;
+		}
+	}
+#endif
 
 	if (chip->schg_version == QPNP_SCHG_LITE) {
 		/* enable OTG hiccup mode */
@@ -7627,6 +7976,27 @@ static int smbchg_hw_init(struct smbchg_chip *chip)
 			return rc;
 		}
 	}
+
+#if defined(CONFIG_TCT_COMMON)
+	/* configure OTG auto Ctrl bit */
+	rc = smbchg_sec_masked_write(chip, chip->otg_base + OTG_CFG,
+			OTG_EN_CTRL_MASK, OTG_CMD_CTRL_RID_EN);
+	if (rc < 0) {
+		dev_err(chip->dev,
+				"Couldn't set OTG CTRL mode rc = %d\n",
+				rc);
+		return rc;
+	}
+
+	rc = smbchg_masked_write(chip, chip->bat_if_base + CMD_CHG_REG,
+			OTG_EN_BIT, 0);
+	if (rc) {
+		dev_err(chip->dev,
+				"Failed to disable PMIC OTG at bootup, rc=%d\n",
+				rc);
+		return rc;
+	}
+#endif
 
 	if (chip->wa_flags & SMBCHG_BATT_OV_WA)
 		batt_ov_wa_check(chip);
@@ -7768,7 +8138,12 @@ err:
 }
 
 #define DEFAULT_VLED_MAX_UV		3500000
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+#define DEFAULT_FCC_MA			500
+#else
 #define DEFAULT_FCC_MA			2000
+#endif
 static int smb_parse_dt(struct smbchg_chip *chip)
 {
 	int rc = 0, ocp_thresh = -EINVAL;
@@ -8333,7 +8708,13 @@ static int smbchg_check_chg_version(struct smbchg_chip *chip)
 		chip->schg_version = QPNP_SCHG;
 		break;
 	case PMI8950:
+#if !defined(CONFIG_TCT_COMMON)
 		chip->wa_flags |= SMBCHG_RESTART_WA;
+#endif
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+		chip->hvdcp_not_supported = true;
+#endif
 	case PMI8937:
 		/* fall through */
 	case PMI8940:
@@ -8341,8 +8722,12 @@ static int smbchg_check_chg_version(struct smbchg_chip *chip)
 		if (pmic_rev_id->rev4 < 2) /* PMI8950 1.0 */ {
 			chip->wa_flags |= SMBCHG_AICL_DEGLITCH_WA;
 		} else	{ /* rev > PMI8950 v1.0 */
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+			chip->wa_flags |= SMBCHG_USB100_WA;
+#else
 			chip->wa_flags |= SMBCHG_HVDCP_9V_EN_WA
 					| SMBCHG_USB100_WA;
+#endif
 		}
 		use_pmi8994_tables(chip);
 		chip->tables.aicl_rerun_period_table =
@@ -8369,13 +8754,23 @@ static int smbchg_check_chg_version(struct smbchg_chip *chip)
 				pmic_rev_id->pmic_subtype);
 	}
 
+#if defined(CONFIG_TCT_COMMON)
+	pr_smb(PR_STATUS, "pmic=%s(rev%d), wa_flags=0x%x, hvdcp=%s\n",
+			pmic_rev_id->pmic_name, pmic_rev_id->rev4, chip->wa_flags,
+			chip->hvdcp_not_supported ? "false" : "true");
+#else
 	pr_smb(PR_STATUS, "pmic=%s, wa_flags=0x%x, hvdcp_supported=%s\n",
 			pmic_rev_id->pmic_name, chip->wa_flags,
 			chip->hvdcp_not_supported ? "false" : "true");
+#endif
 
 	return 0;
 }
 
+
+#if defined(CONFIG_TCT_COMMON)
+static void rerun_hvdcp_det_if_necessary(struct smbchg_chip *chip) {}
+#else
 static void rerun_hvdcp_det_if_necessary(struct smbchg_chip *chip)
 {
 	enum power_supply_type usb_supply_type;
@@ -8424,6 +8819,7 @@ static void rerun_hvdcp_det_if_necessary(struct smbchg_chip *chip)
 		}
 	}
 }
+#endif
 
 static int smbchg_probe(struct spmi_device *spmi)
 {
@@ -8484,6 +8880,16 @@ static int smbchg_probe(struct spmi_device *spmi)
 		dev_err(&spmi->dev, "Unable to allocate memory\n");
 		return -ENOMEM;
 	}
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+	chip->vfloat_votable = create_votable("VFLOAT",
+			VOTE_MIN,
+			set_vfloat_vote_cb, chip);
+	if (IS_ERR(chip->vfloat_votable)) {
+		rc = PTR_ERR(chip->vfloat_votable);
+		goto votables_cleanup;
+	}
+#endif
 
 	chip->fcc_votable = create_votable("BATT_FCC",
 			VOTE_MIN,
@@ -8558,7 +8964,16 @@ static int smbchg_probe(struct spmi_device *spmi)
 		rc = PTR_ERR(chip->aicl_deglitch_short_votable);
 		goto votables_cleanup;
 	}
-
+#if defined(CONFIG_TCT_COMMON)
+	chip->hvdcp_disable_votable = create_votable(
+			"HVDCP_DISABLE",
+			VOTE_SET_ANY,
+			smbchg_hvdcp_disable_cb, chip);
+	if (IS_ERR(chip->hvdcp_disable_votable)) {
+		rc = PTR_ERR(chip->hvdcp_disable_votable);
+		goto votables_cleanup;
+	}
+#else
 	chip->hvdcp_enable_votable = create_votable(
 			"HVDCP_ENABLE",
 			VOTE_MIN,
@@ -8567,6 +8982,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 		rc = PTR_ERR(chip->hvdcp_enable_votable);
 		goto votables_cleanup;
 	}
+#endif
 
 	INIT_WORK(&chip->usb_set_online_work, smbchg_usb_update_online_work);
 	INIT_DELAYED_WORK(&chip->parallel_en_work,
@@ -8672,7 +9088,23 @@ static int smbchg_probe(struct spmi_device *spmi)
 		}
 	}
 	chip->psy_registered = true;
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+	chip->allow_hvdcp3_detection = false;
+#else
 	chip->allow_hvdcp3_detection = true;
+#endif
+
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+	if(chip->schg_version == QPNP_SCHG_LITE) {
+		rc = smbchg_chg_led_controls(chip);
+		if (rc) {
+			dev_err(chip->dev,
+					"Failed to set charger led controld bit: %d\n",
+					rc);
+		}
+	}
+#endif
 
 	if (chip->cfg_chg_led_support &&
 			chip->schg_version == QPNP_SCHG_LITE) {
@@ -8710,6 +9142,16 @@ static int smbchg_probe(struct spmi_device *spmi)
 	update_usb_status(chip, is_usb_present(chip), false);
 	dump_regs(chip);
 	create_debugfs_entries(chip);
+
+#if defined(CONFIG_TCT_COMMON)
+	dev_err(chip->dev,
+		"SMBCHG probed,version=%s Revision DIG:%d.%d ANA:%d.%d batt=%d usb=%d\n",
+			version_str[chip->schg_version],
+			chip->revision[DIG_MAJOR], chip->revision[DIG_MINOR],
+			chip->revision[ANA_MAJOR], chip->revision[ANA_MINOR],
+			get_prop_batt_present(chip),
+			chip->usb_present);
+#else
 	dev_info(chip->dev,
 		"SMBCHG successfully probe Charger version=%s Revision DIG:%d.%d ANA:%d.%d batt=%d dc=%d usb=%d\n",
 			version_str[chip->schg_version],
@@ -8717,6 +9159,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 			chip->revision[ANA_MAJOR], chip->revision[ANA_MINOR],
 			get_prop_batt_present(chip),
 			chip->dc_present, chip->usb_present);
+#endif
 	return 0;
 
 unregister_led_class:
@@ -8729,6 +9172,10 @@ unregister_batt_psy:
 out:
 	handle_usb_removal(chip);
 votables_cleanup:
+#if defined(CONFIG_TCT_COMMON)
+	if (chip->hvdcp_disable_votable)
+		destroy_votable(chip->hvdcp_disable_votable);
+#endif
 	if (chip->aicl_deglitch_short_votable)
 		destroy_votable(chip->aicl_deglitch_short_votable);
 	if (chip->hw_aicl_rerun_enable_indirect_votable)
@@ -8747,6 +9194,10 @@ votables_cleanup:
 		destroy_votable(chip->usb_icl_votable);
 	if (chip->fcc_votable)
 		destroy_votable(chip->fcc_votable);
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+	if (chip->vfloat_votable)
+		destroy_votable(chip->vfloat_votable);
+#endif
 	return rc;
 }
 
@@ -8760,6 +9211,10 @@ static int smbchg_remove(struct spmi_device *spmi)
 		power_supply_unregister(&chip->dc_psy);
 
 	power_supply_unregister(&chip->batt_psy);
+
+#if defined(CONFIG_TCT_COMMON)
+	destroy_votable(chip->hvdcp_disable_votable);
+#endif
 	destroy_votable(chip->aicl_deglitch_short_votable);
 	destroy_votable(chip->hw_aicl_rerun_enable_indirect_votable);
 	destroy_votable(chip->hw_aicl_rerun_disable_votable);
@@ -8769,14 +9224,55 @@ static int smbchg_remove(struct spmi_device *spmi)
 	destroy_votable(chip->dc_icl_votable);
 	destroy_votable(chip->usb_icl_votable);
 	destroy_votable(chip->fcc_votable);
-
+#if defined(CONFIG_TCT_MSM8940_PEPITO)
+	destroy_votable(chip->vfloat_votable);
+#endif
 	return 0;
 }
 
+
+#if defined(CONFIG_TCT_COMMON)
 static void smbchg_shutdown(struct spmi_device *spmi)
 {
 	struct smbchg_chip *chip = dev_get_drvdata(&spmi->dev);
 	int rc;
+	pr_emerg("[SD]Disable all interrupts\n");
+
+	disable_irq(chip->usbid_change_irq);
+	disable_irq(chip->otg_oc_irq);
+	disable_irq(chip->otg_fail_irq);
+	disable_irq(chip->aicl_done_irq);
+	disable_irq(chip->batt_cold_irq);
+	disable_irq(chip->batt_cool_irq);
+	disable_irq(chip->batt_hot_irq);
+	disable_irq(chip->batt_missing_irq);
+	disable_irq(chip->batt_warm_irq);
+	disable_irq(chip->chg_error_irq);
+	disable_irq(chip->chg_hot_irq);
+	disable_irq(chip->chg_term_irq);
+	disable_irq(chip->fastchg_irq);
+	disable_irq(chip->power_ok_irq);
+	disable_irq(chip->recharge_irq);
+	disable_irq(chip->src_detect_irq);
+	disable_irq(chip->taper_irq);
+	disable_irq(chip->usbin_ov_irq);
+	disable_irq(chip->usbin_uv_irq);
+	disable_irq(chip->vbat_low_irq);
+	disable_irq(chip->wdog_timeout_irq);
+
+	rc = smbchg_masked_write(chip, chip->bat_if_base + CMD_CHG_REG,
+			OTG_EN_BIT, 0);
+	if(rc)
+		pr_emerg("[SD]Couldn't disable PMIC OTG, rc=%d\n",rc);
+
+	msleep(500);
+	pr_emerg("[SD]done\n");
+}
+#else
+static void smbchg_shutdown(struct spmi_device *spmi)
+{
+	struct smbchg_chip *chip = dev_get_drvdata(&spmi->dev);
+	int i, rc;
 
 	if (!(chip->wa_flags & SMBCHG_RESTART_WA))
 		return;
@@ -8859,7 +9355,11 @@ static void smbchg_shutdown(struct spmi_device *spmi)
 
 	/* disable HVDCP */
 	pr_smb(PR_MISC, "Disable HVDCP\n");
+#if defined(CONFIG_TCT_COMMON)
+	rc = vote(chip->hvdcp_disable_votable, HVDCP_PMIC_VOTER, true, 0);
+#else
 	rc = vote(chip->hvdcp_enable_votable, HVDCP_PMIC_VOTER, true, 0);
+#endif
 	if (rc < 0)
 		pr_err("Couldn't disable HVDCP rc=%d\n", rc);
 
@@ -8885,6 +9385,7 @@ static void smbchg_shutdown(struct spmi_device *spmi)
 
 	pr_smb(PR_STATUS, "wrote power off configurations\n");
 }
+#endif
 
 static const struct dev_pm_ops smbchg_pm_ops = {
 };

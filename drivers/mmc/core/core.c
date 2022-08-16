@@ -878,6 +878,11 @@ int mmc_exit_clk_scaling(struct mmc_host *host)
 }
 EXPORT_SYMBOL(mmc_exit_clk_scaling);
 
+//[Feature]-Add-BEGIN by TCTSZ. add mmc dumper. xiaoju.liang@tcl.com, 2015/08/06, for [Task-403392]
+#ifdef CONFIG_TCT_DEBUG_MMC
+extern void mmc_dump_event(struct mmc_host *host, struct mmc_request *mrq);
+#endif
+//[Feature]-Add-END by TCTSZ. xiaoju.liang@tcl.com, 2015/08/06, for [Task-403392]
 /**
  *	mmc_request_done - finish processing an MMC request
  *	@host: MMC host which completed request
@@ -914,6 +919,11 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 
 		led_trigger_event(host->led, LED_OFF);
 
+//[Feature]-Add-BEGIN by TCTSZ. add mmc dumper. xiaoju.liang@tcl.com, 2015/08/06, for [Task-403392]
+#ifdef CONFIG_TCT_DEBUG_MMC
+		mmc_dump_event(host, mrq);
+#endif
+//[Feature]-Add-END by TCTSZ. xiaoju.liang@tcl.com, 2015/08/06, for [Task-403392]
 		pr_debug("%s: req done (CMD%u): %d: %08x %08x %08x %08x\n",
 			mmc_hostname(host), cmd->opcode, err,
 			cmd->resp[0], cmd->resp[1],

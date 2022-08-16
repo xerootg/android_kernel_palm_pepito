@@ -81,6 +81,12 @@ static int msm8952_mclk_event(struct snd_soc_dapm_widget *w,
 static int msm8952_wsa_switch_event(struct snd_soc_dapm_widget *w,
 			      struct snd_kcontrol *kcontrol, int event);
 
+/* MODIFIED-BEGIN by hongwei.tian, 2017-11-17,BUG-5573207*/
+#ifdef CONFIG_SND_SOC_TFA98XX_MMI_TEST
+static atomic_t mmi_calib_state;
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-5573207*/
+
 /*
  * Android L spec
  * Need to report LINEIN
@@ -483,7 +489,24 @@ static int msm_mi2s_snd_hw_params(struct snd_pcm_substream *substream,
 			       SNDRV_PCM_FORMAT_S16_LE);
 	return 0;
 }
+/*add quat channel  for echo by wanying.chen@tcl.com 2018.4.8*/
+ static int msm_quat_mi2s_tx_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+                 struct snd_pcm_hw_params *params)
+{
+     struct snd_interval *rate = hw_param_interval(params,
+                     SNDRV_PCM_HW_PARAM_RATE);
+     struct snd_interval *channels = hw_param_interval(params,
+                     SNDRV_PCM_HW_PARAM_CHANNELS);
 
+    // pr_err("%s(), xxLiuxx quat channel:%d\n", __func__, msm_ter_mi2s_tx_ch);
+     param_set_mask(params, SNDRV_PCM_HW_PARAM_FORMAT,
+             SNDRV_PCM_FORMAT_S16_LE);
+     rate->min = rate->max = 48000;
+     channels->min = channels->max = 1;
+
+     return 0;
+}
+/*add end quat channel  for echo by wanying.chen@tcl.com 2018.4.8*/
 static int msm8952_get_clk_id(int port_id)
 {
 	switch (port_id) {
@@ -650,6 +673,96 @@ static int msm_mi2s_sclk_ctl(struct snd_pcm_substream *substream, bool enable)
 	}
 	return ret;
 }
+
+
+/* MODIFIED-BEGIN by hongwei.tian, 2017-11-17,BUG-5573207*/
+#ifdef CONFIG_SND_SOC_TFA98XX_MMI_TEST
+static struct afe_clk_set quat_mi2s_rx_clk = {
+	AFE_API_VERSION_I2S_CONFIG,
+	Q6AFE_LPASS_CLK_ID_QUAD_MI2S_IBIT,
+	Q6AFE_LPASS_IBIT_CLK_1_P536_MHZ,
+	Q6AFE_LPASS_CLK_ATTRIBUTE_COUPLE_NO,
+	Q6AFE_LPASS_CLK_ROOT_DEFAULT,
+	0,
+};
+
+static int msm_q6_enable_mi2s_clocks(bool enable)
+{
+	union afe_port_config port_config;
+	int rc = 0;
+	printk(KERN_ERR"set msm_q6_enable_mi2s_clocks %d\n", enable);
+	if(enable) {
+		port_config.i2s.channel_mode = AFE_PORT_I2S_SD0;
+		port_config.i2s.mono_stereo = MSM_AFE_CH_STEREO;
+		port_config.i2s.data_format= 0;
+		if (mi2s_rx_bit_format == SNDRV_PCM_FORMAT_S24_LE)
+			port_config.i2s.bit_width = 24;
+		else
+			port_config.i2s.bit_width = 16;
+		port_config.i2s.reserved = 0;
+		port_config.i2s.i2s_cfg_minor_version = AFE_API_VERSION_I2S_CONFIG;
+		port_config.i2s.sample_rate = 48000;
+		port_config.i2s.ws_src = 1;
+		rc = afe_port_start(AFE_PORT_ID_QUATERNARY_MI2S_RX, &port_config,
+		48000);
+		if (IS_ERR_VALUE(rc)) {
+			printk(KERN_ERR"fail to open AFE port\n");
+			return -EINVAL;
+		}
+	} else {
+		rc = afe_close(AFE_PORT_ID_QUATERNARY_MI2S_RX);
+		if (IS_ERR_VALUE(rc)) {
+			printk(KERN_ERR"fail to close AFE port\n");
+			return -EINVAL;
+		}
+	}
+	return rc;
+}
+
+int quat_mi2s_sclk_enable(int enable)
+{
+	int ret = 0;
+	static atomic_t sclk_en;
+	int active_state;
+
+	active_state = atomic_read(&sclk_en);
+	if (active_state && 0 == enable) {
+		atomic_set(&sclk_en, 0);
+	} else if (!active_state && enable) {
+		atomic_set(&sclk_en, 1);
+	} else {
+		if (active_state && enable) {
+	            pr_err("%s %d wrong sclk use case :sclk is opened , why open again!!\n", __func__, __LINE__);
+		  } else if (!active_state && !enable){
+	            pr_err("%s %d wrong sclk use case :sclk isn't open, why stop!!\n", __func__, __LINE__);
+		  }
+	        dump_stack();
+	        return -1;
+	}
+	atomic_set(&mmi_calib_state, enable);
+
+	if(enable) {
+		quat_mi2s_rx_clk.enable = 1;
+	}
+	else{
+		quat_mi2s_rx_clk.enable = 0;
+	}
+	ret = afe_set_lpass_clock_v2(AFE_PORT_ID_QUATERNARY_MI2S_RX,
+				&quat_mi2s_rx_clk);
+	if (ret < 0) {
+		pr_err("%s: afe lpass clock failed, err:%d\n", __func__, ret);
+		goto err;
+	}
+	msm_q6_enable_mi2s_clocks(enable);
+	if (ret < 0)
+		pr_err("%s: set set port start failed, err:%d\n", __func__, ret);
+err:
+	return ret;
+
+}
+EXPORT_SYMBOL_GPL(quat_mi2s_sclk_enable);
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-5573207*/
 
 static int msm8952_enable_dig_cdc_clk(struct snd_soc_codec *codec,
 					int enable, bool dapm)
@@ -1414,6 +1527,14 @@ static int msm_quat_mi2s_snd_startup(struct snd_pcm_substream *substream)
 
 	pr_debug("%s(): substream = %s  stream = %d\n", __func__,
 				substream->name, substream->stream);
+/* MODIFIED-BEGIN by hongwei.tian, 2017-11-17,BUG-5573207*/
+#ifdef CONFIG_SND_SOC_TFA98XX_MMI_TEST
+	if (atomic_read(&mmi_calib_state)) {
+		pr_err("%s MMI calibration is processing, stop I2S clk operation, return!\n", __func__);
+		return ret;
+	}
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-5573207*/
 
 	if (!q6core_is_adsp_ready()) {
 		pr_err("%s(): adsp not ready\n", __func__);
@@ -1454,6 +1575,14 @@ static void msm_quat_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 
 	pr_debug("%s(): substream = %s  stream = %d\n", __func__,
 				substream->name, substream->stream);
+/* MODIFIED-BEGIN by hongwei.tian, 2017-11-17,BUG-5573207*/
+#ifdef CONFIG_SND_SOC_TFA98XX_MMI_TEST
+	if (atomic_read(&mmi_calib_state)) {
+		pr_err("%s MMI calibration is processing, stop I2S clk operation, return!\n", __func__);
+		return;
+	}
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-5573207*/
 	ret = msm_mi2s_sclk_ctl(substream, false);
 	if (ret < 0)
 		pr_err("%s:clock disable failed\n", __func__);
@@ -2416,8 +2545,15 @@ static struct snd_soc_dai_link msm8952_dai[] = {
 		.stream_name = "Quaternary MI2S Playback",
 		.cpu_dai_name = "msm-dai-q6-mi2s.3",
 		.platform_name = "msm-pcm-routing",
+/* MODIFIED-BEGIN by hongwei.tian, 2017-10-11,BUG-5395233*/
+#ifdef CONFIG_SND_SOC_TFA98XX
+		.codec_dai_name = "tfa98xx-aif-6-34",
+		.codec_name = "tfa98xx.6-0034",
+#else
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
+#endif
+/* MODIFIED-END by hongwei.tian,BUG-5395233*/
 		.no_pcm = 1,
 		.dpcm_playback = 1,
 		.be_id = MSM_BACKEND_DAI_QUATERNARY_MI2S_RX,
@@ -2436,7 +2572,7 @@ static struct snd_soc_dai_link msm8952_dai[] = {
 		.no_pcm = 1,
 		.dpcm_capture = 1,
 		.be_id = MSM_BACKEND_DAI_QUATERNARY_MI2S_TX,
-		.be_hw_params_fixup = msm_be_hw_params_fixup,
+		.be_hw_params_fixup = msm_quat_mi2s_tx_be_hw_params_fixup,// wanying.chen@tcl.com fix echo 
 		.ops = &msm8952_quat_mi2s_be_ops,
 		.ignore_suspend = 1,
 	},
